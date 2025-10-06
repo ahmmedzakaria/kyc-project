@@ -1,62 +1,30 @@
-version: "3.9"
-
+version: "3.8"
 services:
-  db:
-    image: postgres:15-alpine
-    container_name: kyc-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-kyc_db}
-      POSTGRES_USER: ${POSTGRES_USER:-kyc}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kycpass}
-    volumes:
-      - db-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     container_name: kyc-backend
-    restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://${DB_HOST:-db}:${DB_PORT:-5432}/${POSTGRES_DB:-kyc_db}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-kyc}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-kycpass}
-      SPRING_JPA_HIBERNATE_DDL_AUTO: update
-      JWT_SECRET: ${JWT_SECRET:-change_this_secret}
-      UPLOAD_DIR: /opt/kyc/uploads
-      JAVA_OPTS: ${JAVA_OPTS:- -Xmx512m}
-    volumes:
-      - ./backend/config/application.properties:/config/application.properties:ro
-      - uploads:/opt/kyc/uploads
-      - ./uploads:/app/uploads
     ports:
-      - "${BACKEND_PORT:-9100}:9100"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9100/actuator/health || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      - "9100:9100"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://host.docker.internal:5432/kyc_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: 123456
+    networks:
+      - app_network
+
+    volumes:
+      - ./uploads:/app/uploads
 
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
+    build: ./frontend
     container_name: kyc-frontend
-    restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-4200}:4200"
+      - "4200:4200"
     depends_on:
       - backend
+    networks:
+      - app_network
 
-volumes:
-  db-data:
-  uploads:
+networks:
+  app_network:
+    driver: bridge

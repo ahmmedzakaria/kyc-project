@@ -1,0 +1,23 @@
+{
+  "core": {
+    "frontend": {
+      "url": "https://github.com/ahmmedzakaria/kyc-api-frontend.git",
+      "directory": "frontend"
+    },
+    "backend": {
+      "url": "https://github.com/ahmmedzakaria/kyc-api.git",
+      "directory": "backend"
+    }
+  },
+  "versions": {
+    "v1": {
+      "description": "About v1",
+      "frontend": {
+        "branch": "kyc-frontend-2.0.2-structured-code"
+      },
+      "backend": {
+        "branch": "kyc-api-2.0.1-module-wise-project-structure"
+      }
+    }
+  }
+}

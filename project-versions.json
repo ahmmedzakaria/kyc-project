@@ -11,12 +11,23 @@
   },
   "versions": {
     "v1": {
-      "description": "About v1",
       "frontend": {
-        "branch": "kyc-frontend-2.0.2-structured-code"
+        "branch": "kyc-frontend-2.0.2-structured-code",
+        "description": "User login, jwt, left nev bar, bootstrap, font awesome, interseptor, common api service for post, crud operation with image"
       },
       "backend": {
-        "branch": "kyc-api-2.0.1-module-wise-project-structure"
+        "branch": "kyc-api-2.0.1-module-wise-project-structure",
+        "description": "Module wise project structure, Single data source, image storeing locally "
+      }
+    },
+    "v2": {
+      "frontend": {
+        "branch": "kyc-frontend-2.0.2-structured-code",
+        "description": "User login, jwt, left nev bar, bootstrap, font awesome, interseptor, common api service for post, crud operation with image"
+      },
+      "backend": {
+        "branch": "kyc-api-2.0.2-module-wise-project-structure",
+        "description": "Multiple data source implementation (auth_db, kyc_db, gis_db), Module wise project structure, Single data source, image storeing locally."
       }
     }
   }

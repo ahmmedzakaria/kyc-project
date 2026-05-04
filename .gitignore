@@ -2,3 +2,14 @@ frontend/
 backend/
 sms/
 test/
+privilege-frontend/node_modules/
+privilege-frontend/.angular/
+privilege-frontend/dist/
+frontend-libs/
+node_modules
+privilege-frontend/
+uploads/
+.codex
+.idea/
+
+

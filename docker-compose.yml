@@ -6,20 +6,47 @@ services:
     ports:
       - "9100:9100"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://host.docker.internal:5432/kyc_db
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: 123456
+      SPRING_DATASOURCE_AUTH_JDBC_URL: jdbc:postgresql://host.docker.internal:5433/auth_db
+      SPRING_DATASOURCE_AUTH_USERNAME: postgres
+      SPRING_DATASOURCE_AUTH_PASSWORD: 123456
+      SPRING_DATASOURCE_AUTH_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_KYC_JDBC_URL: jdbc:postgresql://host.docker.internal:5433/kyc_db
+      SPRING_DATASOURCE_KYC_USERNAME: postgres
+      SPRING_DATASOURCE_KYC_PASSWORD: 123456
+      SPRING_DATASOURCE_KYC_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_GIS_JDBC_URL: jdbc:postgresql://host.docker.internal:5433/gisdb
+      SPRING_DATASOURCE_GIS_USERNAME: postgres
+      SPRING_DATASOURCE_GIS_PASSWORD: 123456
+      SPRING_DATASOURCE_GIS_DRIVER_CLASS_NAME: org.postgresql.Driver
+      STORAGE_TYPE: minio
+      MINIO_ENDPOINT: http://host.docker.internal:9000
+      MINIO_PUBLIC_BASE_URL: http://localhost:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_BUCKET: kyc-files
     networks:
       - app_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
     volumes:
-      - ./uploads:/app/uploads
+      - ./uploads:/opt/kyc/uploads
 
   frontend:
     build: ./frontend
     container_name: kyc-frontend
     ports:
-      - "4200:4200"
+      - "4200:80"
+    depends_on:
+      - backend
+    networks:
+      - app_network
+
+  privilege-frontend:
+    build: ./privilege-frontend
+    container_name: privilege-frontend
+    ports:
+      - "4300:80"
     depends_on:
       - backend
     networks:

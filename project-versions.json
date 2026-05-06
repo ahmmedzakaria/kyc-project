@@ -45,15 +45,15 @@
       },
       "frontend": {
         "branch": "kyc-frontend-3.0.2-shared-common-frontend-libs",
-        "description": "KYC frontend using shared frontend libraries for common components, layout, authentication, dynamic privilege-based menu, and person management updates."
+        "description": "NexaCore frontend using shared frontend libraries for common components, layout, authentication, dynamic privilege-based menu, and person management updates."
       },
       "privilegeFrontend": {
         "branch": "privilege-frontend-3.0.2-shared-common-frontend-libs",
-        "description": "Privilege management frontend using shared frontend libraries and backend-driven menu/privilege context."
+        "description": "NexaCore privilege management frontend using shared frontend libraries and backend-driven menu/privilege context."
       },
       "frontendLibs": {
         "branch": "main",
-        "description": "Reusable Angular shared, layout, and auth libraries used by KYC frontend and privilege frontend."
+        "description": "Reusable Angular shared, layout, auth, API common, and asset libraries used by NexaCore frontend applications."
       }
     }
   }

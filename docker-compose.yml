@@ -1,8 +1,8 @@
-version: "3.8"
+name: nexacore
 services:
-  backend:
+  nexacore-backend:
     build: ./backend
-    container_name: kyc-backend
+    container_name: nexacore-backend
     ports:
       - "9100:9100"
     environment:
@@ -30,25 +30,25 @@ services:
       - "host.docker.internal:host-gateway"
 
     volumes:
-      - ./uploads:/opt/kyc/uploads
+      - ./uploads:/opt/nexacore/uploads
 
-  frontend:
+  nexacore-frontend:
     build: ./frontend
-    container_name: kyc-frontend
+    container_name: nexacore-frontend
     ports:
       - "4200:80"
     depends_on:
-      - backend
+      - nexacore-backend
     networks:
       - app_network
 
-  privilege-frontend:
+  nexacore-privilege-frontend:
     build: ./privilege-frontend
-    container_name: privilege-frontend
+    container_name: nexacore-privilege-frontend
     ports:
       - "4300:80"
     depends_on:
-      - backend
+      - nexacore-backend
     networks:
       - app_network
 

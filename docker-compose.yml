@@ -24,6 +24,11 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: kyc-files
+      AUTH_MODE: ${AUTH_MODE:-LOCAL}
+      KEYCLOAK_ISSUER_URI: http://localhost:9200/realms/kyc
+      KEYCLOAK_JWK_SET_URI: http://host.docker.internal:9200/realms/kyc/protocol/openid-connect/certs
+      KEYCLOAK_CLIENT_ID: nexacore-client
+      KEYCLOAK_AUDIENCE: nexacore
     networks:
       - app_network
     extra_hosts:
@@ -51,6 +56,29 @@ services:
       - nexacore-backend
     networks:
       - app_network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: nexacore-keycloak
+    command:
+      - start-dev
+      - --http-port=9200
+      - --db=postgres
+      - --db-url=jdbc:postgresql://host.docker.internal:5433/kyc_db?currentSchema=keycloak
+      - --db-username=postgres
+      - --db-password=123456
+    ports:
+      - "9200:9200"
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+    networks:
+      - app_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 networks:
   app_network:

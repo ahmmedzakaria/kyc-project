@@ -1,7 +1,7 @@
 FROM quay.io/keycloak/keycloak:26.0
 
 ENV KC_DB=postgres
-ENV KC_DB_URL=jdbc:postgresql://host.docker.internal:5433/kyc_db?currentSchema=keycloak
+ENV KC_DB_URL=jdbc:postgresql://host.docker.internal:5433/keycloak
 ENV KC_DB_USERNAME=postgres
 
 ENV KC_HOSTNAME=localhost

@@ -54,21 +54,18 @@ Later enhancement: switch APIs to validate Keycloak JWT directly with Spring Res
 
 ## Keycloak Database Plan
 
-The request says Keycloak should use `kyc_db`.
+Keycloak should use a separate PostgreSQL database named `keycloak`.
 
 Recommended safe setup:
 
-- Use the same PostgreSQL server/database name `kyc_db`.
-- Put Keycloak tables in a dedicated schema, for example `keycloak`.
+- Use the same PostgreSQL server, but a separate database named `keycloak`.
+- Use the default `public` schema inside the separate `keycloak` database.
 - Do not mix Keycloak internal tables with existing KYC/Auth/GIS tables.
 
 Example:
 
 ```sql
-CREATE SCHEMA IF NOT EXISTS keycloak;
-CREATE USER keycloak_user WITH PASSWORD 'change_me';
-GRANT USAGE, CREATE ON SCHEMA keycloak TO keycloak_user;
-ALTER ROLE keycloak_user SET search_path TO keycloak;
+CREATE DATABASE keycloak;
 ```
 
 Important: Keycloak does not automatically use your existing application `users` table as its user store. If direct reuse of the existing `authmodule.user` table is required, that is a separate Keycloak User Storage SPI implementation and should be a later phase.
@@ -78,11 +75,12 @@ Important: Keycloak does not automatically use your existing application `users`
 Add properties:
 
 ```properties
-app.auth.mode=${AUTH_MODE:LOCAL}
+app.auth.mode=${AUTH_MODE:SSO}
 
 keycloak.issuer-uri=${KEYCLOAK_ISSUER_URI:http://localhost:9200/realms/kyc}
 keycloak.jwk-set-uri=${KEYCLOAK_JWK_SET_URI:http://localhost:9200/realms/kyc/protocol/openid-connect/certs}
 keycloak.client-id=${KEYCLOAK_CLIENT_ID:nexacore-client}
+keycloak.allowed-client-ids=${KEYCLOAK_ALLOWED_CLIENT_IDS:nexacore-client,privilege-frontend}
 keycloak.required-audience=${KEYCLOAK_AUDIENCE:nexacore}
 keycloak.sync-user=true
 ```
@@ -97,10 +95,10 @@ Response:
 
 ```json
 {
-  "authMode": "LOCAL",
+  "authMode": "SSO",
   "issuerUri": "http://localhost:9200/realms/kyc",
   "clientId": "nexacore-client",
-  "redirectUri": "http://localhost:4200/auth/callback"
+  "redirectUri": "http://localhost:4200/sso/callback"
 }
 ```
 
@@ -249,7 +247,7 @@ Use direct Authorization Code + PKCE in the shared auth library. No additional f
 
 Examples:
 
-- `/auth/callback`
+- `/sso/callback`
 - `/sso/callback`
 
 7. Update logout:
@@ -277,9 +275,9 @@ authSsoApi: 'auth/sso/authenticate'
 2. Configure DB:
 
 - DB: PostgreSQL
-- DB name: `kyc_db`
-- Schema: `keycloak`
-- User: `keycloak_user`
+- DB name: `keycloak`
+- Schema: default `public`
+- User: `postgres` or a dedicated Keycloak database user with privileges on the `keycloak` database
 
 3. Create realm:
 
@@ -324,8 +322,8 @@ Add Keycloak service to Docker Compose:
 
 - Keycloak container
 - Uses existing Postgres service or host Postgres.
-- Connects to `kyc_db`.
-- Uses schema `keycloak`.
+- Connects to the separate `keycloak` database.
+- Uses the default `public` schema.
 
 Add environment variables:
 
@@ -408,7 +406,7 @@ Regression:
 
 1. Keycloak database usage:
 
-Using `kyc_db` is fine if Keycloak uses a separate schema. Sharing the same application tables directly is not recommended for the first phase.
+Use a separate `keycloak` database for Keycloak. Sharing the application databases or application tables directly is not recommended for the first phase.
 
 2. User source of truth:
 

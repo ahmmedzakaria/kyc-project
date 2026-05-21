@@ -10,7 +10,7 @@ Implement configurable authentication for the NexaCore project with two modes:
 Both frontend applications must support the same authentication mode through shared `frontend-libs/auth`.
 
 ## Current State
-
+AuthCon
 Backend currently has:
 
 - `/auth/authenticate` for username/password login.

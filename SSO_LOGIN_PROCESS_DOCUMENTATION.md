@@ -75,10 +75,16 @@ http://localhost:4300/sso/callback
 
 ### Backend Auth APIs
 
-Backend auth APIs are defined in:
+General backend auth APIs are defined in:
 
 ```text
 backend/src/main/java/com/nexacore/authmodule/controller/AuthController.java
+```
+
+SSO APIs are defined separately in:
+
+```text
+backend/src/main/java/com/nexacore/authmodule/sso/controller/SsoController.java
 ```
 
 | Method | Endpoint | Public | Purpose |
@@ -497,10 +503,10 @@ However, the frontend normalizes client ID and redirect URI based on `window.loc
 
 ### 2. `/auth/sso/authenticate`
 
-The backend method is:
+The backend SSO controller delegates to:
 
 ```java
-AuthServiceImpl.ssoAuthenticate(SsoAuthenticateRequest request)
+SsoAuthService.authenticate(SsoAuthenticateRequest request)
 ```
 
 Behavior:
@@ -521,7 +527,7 @@ SSO_LOGIN_DISABLED
 Validation is implemented in:
 
 ```text
-backend/src/main/java/com/nexacore/authmodule/service/implementations/KeycloakSsoService.java
+backend/src/main/java/com/nexacore/authmodule/sso/service/KeycloakSsoService.java
 ```
 
 The backend uses:

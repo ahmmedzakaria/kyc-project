@@ -752,7 +752,7 @@ It uses a single source of truth for login and logout:
 username -> loginAfter timestamp
 ```
 
-On successful local or SSO login, the username is added to `loginAfterByUsername`.
+On successful local or SSO login, the username is added to `loginAfterByUsername` only if it is not already present. This allows the same user to be logged in to both frontend apps at the same time without the later login invalidating the earlier app's JWT.
 
 On logout, the username is removed from `loginAfterByUsername`.
 

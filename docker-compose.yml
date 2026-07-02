@@ -24,14 +24,32 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
       MINIO_BUCKET: kyc-files
+      APP_NAME: ${APP_NAME:-NexaCore}
+      APP_SLUG: ${APP_SLUG:-nexacore}
       MOBILE_MESSAGING_ENABLED: ${MOBILE_MESSAGING_ENABLED:-false}
       MOBILE_MESSAGING_PROVIDER: ${MOBILE_MESSAGING_PROVIDER:-generic}
       MOBILE_MESSAGING_GATEWAY_URL: ${MOBILE_MESSAGING_GATEWAY_URL:-}
       MOBILE_MESSAGING_API_KEY: ${MOBILE_MESSAGING_API_KEY:-}
       MOBILE_MESSAGING_AUTH_HEADER_NAME: ${MOBILE_MESSAGING_AUTH_HEADER_NAME:-Authorization}
       MOBILE_MESSAGING_AUTH_HEADER_PREFIX: ${MOBILE_MESSAGING_AUTH_HEADER_PREFIX:-Bearer}
-      MOBILE_MESSAGING_SENDER_ID: ${MOBILE_MESSAGING_SENDER_ID:-NexaCore}
+      MOBILE_MESSAGING_SENDER_ID: ${MOBILE_MESSAGING_SENDER_ID:-${APP_NAME:-NexaCore}}
       MOBILE_MESSAGING_TIMEOUT_SECONDS: ${MOBILE_MESSAGING_TIMEOUT_SECONDS:-10}
+      EMAIL_MESSAGING_ENABLED: ${EMAIL_MESSAGING_ENABLED:-false}
+      EMAIL_MESSAGING_PROVIDER: ${EMAIL_MESSAGING_PROVIDER:-smtp}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-no-reply@${APP_SLUG:-nexacore}.local}
+      EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-${APP_NAME:-NexaCore}}
+      EMAIL_OTP_SUBJECT: ${EMAIL_OTP_SUBJECT:-Your ${APP_NAME:-NexaCore} OTP}
+      EMAIL_TRANSACTION_SUBJECT: ${EMAIL_TRANSACTION_SUBJECT:-${APP_NAME:-NexaCore} Transaction Update}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_AUTH: ${SMTP_AUTH:-true}
+      SMTP_STARTTLS_ENABLE: ${SMTP_STARTTLS_ENABLE:-true}
+      SMTP_STARTTLS_REQUIRED: ${SMTP_STARTTLS_REQUIRED:-false}
+      SMTP_CONNECTION_TIMEOUT: ${SMTP_CONNECTION_TIMEOUT:-10000}
+      SMTP_TIMEOUT: ${SMTP_TIMEOUT:-10000}
+      SMTP_WRITE_TIMEOUT: ${SMTP_WRITE_TIMEOUT:-10000}
       FIREBASE_AUTH_ENABLED: ${FIREBASE_AUTH_ENABLED:-true}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-kyc-a8e6d}
       FIREBASE_SERVICE_ACCOUNT_PATH: ${FIREBASE_SERVICE_ACCOUNT_PATH:-/opt/nexacore/firebase/firebase-service-account.json}
@@ -43,6 +61,10 @@ services:
       KEYCLOAK_CLIENT_ID: nexacore-client
       KEYCLOAK_ALLOWED_CLIENT_IDS: nexacore-client,privilege-frontend
       KEYCLOAK_AUDIENCE: nexacore
+      OTEL_TRACING_ENABLED: ${OTEL_TRACING_ENABLED:-false}
+      OTEL_TRACES_SAMPLER_PROBABILITY: ${OTEL_TRACES_SAMPLER_PROBABILITY:-0.10}
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-http://otel-collector:4318/v1/traces}
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:-health,info,prometheus,metrics}
     networks:
       - app_network
     extra_hosts:
@@ -95,6 +117,95 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  metabase:
+    image: metabase/metabase:${METABASE_VERSION:-latest}
+    container_name: nexacore-metabase
+    profiles:
+      - analytics
+    ports:
+      - "${METABASE_PORT:-3001}:3000"
+    environment:
+      MB_DB_TYPE: ${METABASE_DB_TYPE:-postgres}
+      MB_DB_HOST: ${METABASE_DB_HOST:-host.docker.internal}
+      MB_DB_PORT: ${METABASE_DB_PORT:-5433}
+      MB_DB_DBNAME: ${METABASE_DB_NAME:-metabase}
+      MB_DB_USER: ${METABASE_DB_USER:-postgres}
+      MB_DB_PASS: ${METABASE_DB_PASSWORD:-123456}
+      MB_SITE_NAME: ${METABASE_SITE_NAME:-NexaCore Analytics}
+    networks:
+      - app_network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:${OTEL_COLLECTOR_VERSION:-latest}
+    container_name: nexacore-otel-collector
+    profiles:
+      - observability
+    command:
+      - --config=/etc/otelcol-contrib/config.yml
+    ports:
+      - "${OTEL_COLLECTOR_GRPC_PORT:-4317}:4317"
+      - "${OTEL_COLLECTOR_HTTP_PORT:-4318}:4318"
+      - "${OTEL_COLLECTOR_HEALTH_PORT:-13133}:13133"
+      - "${OTEL_COLLECTOR_PROMETHEUS_PORT:-8889}:8889"
+    volumes:
+      - ./observability/otel-collector-config.yml:/etc/otelcol-contrib/config.yml:ro
+    networks:
+      - app_network
+
+  prometheus:
+    image: prom/prometheus:${PROMETHEUS_VERSION:-latest}
+    container_name: nexacore-prometheus
+    profiles:
+      - observability
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - app_network
+
+  tempo:
+    image: grafana/tempo:${TEMPO_VERSION:-latest}
+    container_name: nexacore-tempo
+    profiles:
+      - observability
+    command:
+      - -config.file=/etc/tempo.yml
+    ports:
+      - "${TEMPO_PORT:-3200}:3200"
+    volumes:
+      - ./observability/tempo.yml:/etc/tempo.yml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - app_network
+
+  grafana:
+    image: grafana/grafana:${GRAFANA_VERSION:-latest}
+    container_name: nexacore-grafana
+    profiles:
+      - observability
+    ports:
+      - "${GRAFANA_PORT:-3002}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./observability/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - app_network
+
 networks:
   app_network:
     driver: bridge
+
+volumes:
+  prometheus-data:
+  tempo-data:
+  grafana-data:

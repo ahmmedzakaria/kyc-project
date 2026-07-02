@@ -43,6 +43,15 @@ When changing backend code:
 - Validate auth changes against both local JWT behavior and SSO/Keycloak configuration where relevant.
 - Do not broaden CORS, token, or datasource behavior without an explicit reason.
 
+Database table naming convention:
+
+- Use explicit `@Table(name = "...")` mappings for persistent entities.
+- Prefix tables with the owning module code: `auth_`, `kyc_`, `gis_`, `log_`.
+- Prefix join tables too, for example `auth_user_roles` and `auth_role_privileges`.
+- Do not prefix column names solely for module ownership; keep relationship columns readable, such as `user_id`, `role_id`, and `person_id`.
+- When renaming existing tables, add or document a migration path. `spring.jpa.hibernate.ddl-auto=update` can create new prefixed tables but does not move old data.
+- Keep external SQL clients, Keycloak SPI queries, reports, and documentation aligned with entity table names.
+
 ## Frontends
 
 Both Angular apps use Angular 19, Angular Material, Bootstrap, RxJS, and TypeScript 5.7.
@@ -96,7 +105,7 @@ nexacore-authmodule-user-storage
 When changing Keycloak integration:
 
 - Keep the provider compatible with Keycloak 26 and Java 21.
-- The SPI reads `users`, `roles`, and `user_roles` from `auth_db`.
+- The SPI reads `auth_users`, `auth_roles`, and `auth_user_roles` from `auth_db`.
 - Preserve BCrypt password validation behavior unless explicitly replacing local password auth.
 - Verify frontend client IDs and backend accepted audiences together.
 
@@ -128,4 +137,3 @@ Run the narrowest meaningful checks for the files touched:
 - Compose/config changes: inspect rendered configuration and, when practical, run `docker compose config`
 
 If a command cannot be run because required local services or dependencies are unavailable, note that clearly in the final response.
-

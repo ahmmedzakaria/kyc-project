@@ -49,6 +49,8 @@ Database table naming convention:
 - Prefix tables with the owning module code: `auth_`, `kyc_`, `gis_`, `log_`.
 - Prefix join tables too, for example `auth_user_roles` and `auth_role_privileges`.
 - Do not prefix column names solely for module ownership; keep relationship columns readable, such as `user_id`, `role_id`, and `person_id`.
+- Every persistent table in every module, submodule, service, and feature must include `created_by` and `updated_by` columns in addition to timestamp audit fields such as `created_at` and `updated_at`.
+- `created_by` and `updated_by` should store the authenticated user or system actor responsible for the change. Use a clear system actor value for seed data, scheduled jobs, migrations, and automated integrations.
 - When renaming existing tables, add or document a migration path. `spring.jpa.hibernate.ddl-auto=update` can create new prefixed tables but does not move old data.
 - Keep external SQL clients, Keycloak SPI queries, reports, and documentation aligned with entity table names.
 

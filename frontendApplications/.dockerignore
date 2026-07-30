@@ -1,0 +1,10 @@
+# Docker only reads .dockerignore from the exact build context root — this is
+# that root when building kyc-frontend-21's Dockerfile with context set to
+# frontendApplications/ (needed so it can reach the sibling frontend-libs-21).
+# Applies to every project folder here, not just the two involved in that build.
+**/node_modules
+**/dist
+**/.angular
+**/coverage
+**/*.log
+**/.git

@@ -43,6 +43,29 @@ When changing backend code:
 - Validate auth changes against both local JWT behavior and SSO/Keycloak configuration where relevant.
 - Do not broaden CORS, token, or datasource behavior without an explicit reason.
 
+### Person, Organization, And Authorization Model
+
+Preserve these domain boundaries when changing Auth, KYC, workflow, documents, or access control:
+
+- `KycPerson` is the global human identity. Do not add `tenant_id`, `business_id`, or `branch_id` ownership columns back to `kyc_person`.
+- Every `AuthUser` must reference exactly one existing `KycPerson` through mandatory, unique `auth_users.person_id`. A `KycPerson` may exist without an `AuthUser`.
+- Auth and KYC use separate databases, so `auth_users.person_id` is an application-level reference rather than a physical foreign key. Validate it through `PersonModuleGateway`, preserve provisioning consistency, and add reconciliation for cross-database repair paths.
+- `KycPersonOrganizationMembership` is the source of truth for a person's potentially multiple organizational relationships. Membership describes participation and must never automatically grant application access.
+- `KycPersonProfile` is the tenant/business/branch-owned KYC relationship for a global person. Tenant-specific details, documents, photos, decisions, reviews, and workflows must resolve through an authorized profile or another explicitly scoped owning record.
+- `AuthUserScopeAssignment` is the independent source of truth for where a login may operate. A user's authorization scopes may differ from the linked person's memberships.
+- Keep hierarchical scope tuples valid: `tenantId` is required; `branchId` requires `businessId`. A tenant-level assignment may cover descendants, a business-level assignment may cover its branches, and a branch assignment must not widen itself.
+- Users and people can have multiple structural assignments. Do not replace normalized assignment/profile tables with a single tenant/business/branch tuple.
+- Scoped person APIs use the KYC profile ID as the resource ID. DTOs expose the global `personId` separately; do not silently interchange profile IDs and person IDs.
+- Scope must be included in repository/database predicates, including direct-ID reads, writes, deletes, history, photos, and downloads. Do not fetch cross-scope records and filter them in memory.
+- Missing, ambiguous, inactive, or unauthorized scope must fail closed. Never infer tenant ownership from caller-controlled headers or silently assign legacy records.
+- Treat authentication username and user existence as Auth-owned concerns. Avoid introducing new duplicated authority fields on `KycPerson`; any retained compatibility projection must not become a source of truth.
+
+Relevant design documentation:
+
+- `backend/src/main/java/com/nexacore/systemmodule/accesscontrol/BACKEND_API_ACCESS_CONTROL_ANALYSIS.md`
+- `backend/src/main/java/com/nexacore/authmodule/AUTH_MODULE_BUSINESS_AND_IMPLEMENTATION.md`
+- `backend/src/main/java/com/nexacore/kycmodule/KYC_MODULE_BUSINESS_AND_IMPLEMENTATION.md`
+
 Database table naming convention:
 
 - Use explicit `@Table(name = "...")` mappings for persistent entities.
@@ -52,6 +75,7 @@ Database table naming convention:
 - Every persistent table in every module, submodule, service, and feature must include `created_by` and `updated_by` columns in addition to timestamp audit fields such as `created_at` and `updated_at`.
 - `created_by` and `updated_by` should store the authenticated user or system actor responsible for the change. Use a clear system actor value for seed data, scheduled jobs, migrations, and automated integrations.
 - When renaming existing tables, add or document a migration path. `spring.jpa.hibernate.ddl-auto=update` can create new prefixed tables but does not move old data.
+- Never edit an already deployed Flyway migration to change its meaning; add the next versioned migration. Backfills must only infer ownership from trusted existing data, and must leave unresolved records inaccessible for explicit repair.
 - Keep external SQL clients, Keycloak SPI queries, reports, and documentation aligned with entity table names.
 
 ## Frontends

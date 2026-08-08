@@ -6,15 +6,47 @@
     },
     "frontend": {
       "url": "https://github.com/ahmmedzakaria/kyc-api-frontend.git",
-      "directory": "frontend"
+      "directory": "frontend",
+      "legacy": true
     },
     "privilegeFrontend": {
       "url": "https://github.com/ahmmedzakaria/privilege-frontend.git",
-      "directory": "privilege-frontend"
+      "directory": "privilege-frontend",
+      "legacy": true
     },
     "frontendLibs": {
       "url": "https://github.com/ahmmedzakaria/frontend-libs.git",
-      "directory": "frontend-libs"
+      "directory": "frontend-libs",
+      "legacy": true
+    },
+    "jasyptEncrypt": {
+      "url": "https://github.com/ahmmedzakaria/kyc-project.git",
+      "directory": "tools/jasypt-encrypt",
+      "note": "Not a separate repo; lives inside the root kyc-project repo, versioned with it."
+    },
+    "keycloak": {
+      "url": "https://github.com/ahmmedzakaria/keycloak.git",
+      "directory": "keycloak2"
+    },
+    "kycFrontend21": {
+      "url": "https://github.com/ahmmedzakaria/kyc-frontend-21.git",
+      "directory": "frontendApplications/kyc-frontend-21"
+    },
+    "systemFrontend21": {
+      "url": "https://github.com/ahmmedzakaria/system-frontend-21.git",
+      "directory": "frontendApplications/system-frontend-21"
+    },
+    "frontendLibs21": {
+      "url": "https://github.com/ahmmedzakaria/frontend-libs-21.git",
+      "directory": "frontendApplications/frontend-libs-21"
+    },
+    "sentinelKycAngularCld": {
+      "url": "https://github.com/ahmmedzakaria/sentinel-kyc-angular-cld.git",
+      "directory": "frontendApplications/sentinel-kyc-angular-cld"
+    },
+    "layout21": {
+      "url": "https://github.com/ahmmedzakaria/layout-21.git",
+      "directory": "frontendApplications/layout-21"
     }
   },
   "versions": {
@@ -54,6 +86,40 @@
       "frontendLibs": {
         "branch": "main",
         "description": "Reusable Angular shared, layout, auth, API common, and asset libraries used by NexaCore frontend applications."
+      }
+    },
+    "v4": {
+      "backend": {
+        "branch": "nexacore-1.0.2-client-architecture-v1",
+        "description": "Client-application architecture (per-client API/feature permissions, X-Client-Code resolution) with Access Control, Privilege, Layout, and License administration modules; application.properties credentials Jasypt-encrypted; system-module gap analysis and multi-tenant SaaS upgrade plans documented, not yet implemented."
+      },
+      "jasyptEncrypt": {
+        "branch": "nexacore-1.0.2-client-architecture",
+        "description": "Standalone helper (EncryptTool.java + encrypt.sh) for generating Jasypt ENC(...) values matching backend's JasyptConfig.java algorithm (PBEWITHHMACSHA512ANDAES_256, random salt+IV); not a separate repo, lives at tools/jasypt-encrypt in the root project."
+      },
+      "keycloak": {
+        "branch": "nexacore-1.0.2-client-architecture",
+        "description": "Dockerized Keycloak with a custom User Storage SPI backing logins with the app's own auth_user table instead of Keycloak's internal user store; Maven-built SPI module, run-keycloak-in-docker.sh, and setup documented in LOCAL_POSTGRES_DOCKER_KEYCLOAK.md."
+      },
+      "kycFrontend21": {
+        "branch": "client-architecture-v1",
+        "description": "Angular 21 standalone KYC frontend, client-application-aware (X-Client-Code): layout/theme sourced from backend config, dynamic form/wizard/list components, user-specific privilege-gated actions, dynamic document preview."
+      },
+      "systemFrontend21": {
+        "branch": "client-architecture-v1",
+        "description": "Angular 21 system-administration console (SYSTEM_ADMIN_WEB client): Access Control, Privileges, Layout Administration (navigation tree, UI/route policies), and License Administration (Plans, Subscriptions, Entitlements, Keys) modules."
+      },
+      "frontendLibs21": {
+        "branch": "client-architecture-v1",
+        "description": "Angular 21 shared component libraries (@nexacore/platform + @nexacore/shared): dynamic form/wizard/list with pagination, dynamic preview, privilege-gated UI directives, smart dropdown, shared authenticated layout shell."
+      },
+      "sentinelKycAngularCld": {
+        "branch": "configurable-layout-and-kyc-demo",
+        "description": "Configurable enterprise layout shell (token-driven SCSS across 5 tiers, responsive nav, backend-driven layout-config.json) with a KYC demo built on top to exercise it end to end."
+      },
+      "layout21": {
+        "branch": "enterprise-layout",
+        "description": "Enterprise navigation POC: module/submodule/feature hierarchy in dedicated tables, compliance/finance module groups, T-code quick nav, breadcrumb, /v1 API alignment for all endpoints."
       }
     }
   }

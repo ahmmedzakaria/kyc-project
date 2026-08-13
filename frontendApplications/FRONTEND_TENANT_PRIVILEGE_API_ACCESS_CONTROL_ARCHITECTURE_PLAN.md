@@ -1,5 +1,7 @@
 # Frontend Tenant, Privilege, and API Access-Control Architecture Plan
 
+> Implementation status: Phases 0–7 are implemented as of 2026-08-14. The automated fail-closed gate passes locally. The authenticated, seeded multi-tenant browser matrix remains an environment-level verification step because it requires registered clients, synchronized metadata and grants, tenant-resolvable hostnames, and test identities.
+
 ## 1. Scope and backend contract
 
 This plan aligns `system-frontend-21`, `kyc-frontend-21`, and `frontend-libs-21` with the current backend authorization architecture. It extends the system-specific plan in `system-frontend-21/TENANT_PRIVILEGE_API_ACCESS_CONTROL_IMPLEMENTATION_PLAN.md` and the backend test roadmap.
@@ -17,22 +19,30 @@ The frontend must reflect these backend invariants:
 
 Neither frontend may treat headers, form ownership fields, query parameters, router state, JWT decoding, or local storage as authorization proof.
 
-## 2. Current-state matrix
+## 2. Current implementation matrix
 
 | Concern | `frontend-libs-21` | `system-frontend-21` | `kyc-frontend-21` |
 |---|---|---|---|
-| Authentication | Shared implementation exists | Uses shared auth | Uses shared auth |
-| Client identity | Shared `ApiService` sends client code | `SYSTEM_ADMIN_WEB` | `WEB` |
-| Route policy | Shared guard exists | Bypassed on admin routes | Enabled on person routes |
-| UI policy | Shared directive exists | Inconsistent use | Used for major person actions |
-| Effective tenant/scopes | Not modeled | Manually decodes JWT tenant | Not consumed |
-| Revocation refresh | Login/logout oriented | Stale UI possible | Stale UI possible |
-| Denial handling | Generic 401/403 behavior | No recovery policy | No recovery policy |
-| Safe replacement | No shared abstraction | Client grants are unsafe | Not currently used |
-| Hierarchical scope UI | Missing | Required for clients/users | Presentation only |
-| Direct-ID loading | Generic API support | Client list-and-filter | Person pages require router state |
-| Domain coverage | Infrastructure only | Broad admin UI, incomplete parity | Person CRUD; documents missing |
-| App tests | Shared primitives have some tests | Essentially absent | One endpoint test |
+| Authentication | Shared auth and fail-closed context lifecycle | Uses shared auth/context | Uses shared auth/context |
+| Client identity | Shared API layer sends public client code without a secret | `SYSTEM_ADMIN_WEB` | `WEB` |
+| Route policy | Shared fail-closed policy service and guard | Admin route bypasses removed | Exact person route policies enabled |
+| UI policy | Shared directive delegates to policy service | Specialized actions use exact policies | Person/photo/document actions use exact policies |
+| Effective tenant/scopes | Typed live server context with normalized tuples | Consumes shared effective context; no JWT tenant decoding | Consumes and displays shared effective context |
+| Revocation refresh | Single-flight refresh and replacement-user cleanup | Refreshes after authorization mutations | Active-session revocation is reflected after refresh |
+| Denial handling | Stable-code classification and non-replaying refresh | Shared denial/recovery behavior | Shared denial/recovery behavior |
+| Safe replacement | Shared load-before-save state/checklist/summary | Client and user assignment editors use safe replacement | Available for domain workflows when required |
+| Hierarchical scope UI | Shared normalized tuple selector | Used for client/user scopes | Scope remains backend-authoritative |
+| Direct-ID loading | Typed API support | Direct client administration detail | Direct KYC profile loading by profile ID |
+| Domain coverage | Infrastructure and reusable safety UI | Client/user scope, backup and specialized actions aligned | Typed profile detail, multipart allowlist, photos and documents aligned |
+| Automated tests | 57 shared tests | 3 unit and 3 Playwright route-denial tests | 4 unit and 3 Playwright route-denial tests |
+
+### 2.1 Backend enforcement state
+
+- `AccessControlProperties` and `application.properties` default to `EnforcementMode.ENFORCE`.
+- `REPORT` remains available only as an explicit non-production diagnostic override.
+- `prod` and `production` profiles reject disabled or non-`ENFORCE` access control during startup.
+- Protected APIs fail closed for missing registry metadata, client/API/feature grants, user privilege, effective tenant, or data scope.
+- Maven Surefire preloads Mockito as a Java agent so Java 21 CI does not depend on runtime self-attachment permissions.
 
 ## 3. Common implementation isolated to `frontend-libs-21`
 
@@ -158,22 +168,24 @@ Maintain the dependency rule: `platform` must never import `shared`.
 - KYC forms and domain workflow.
 - Backend credentials.
 
-## 5. `frontend-libs-21` gap list
+## 5. `frontend-libs-21` implementation record
 
-| ID | Gap | Required outcome |
+| ID | Implemented outcome | Status |
 |---|---|---|
-| FL-1 | Authorization state split between signals and local storage | One live reactive authority |
-| FL-2 | Effective tenant/scopes absent | Typed server-validated context |
-| FL-3 | No revocation refresh protocol | Single-flight refresh/version or TTL |
-| FL-4 | Generic interceptor lacks stable-code behavior | Typed denial coordinator |
-| FL-5 | Policy checks split across services/directives/roles | One programmatic policy service |
-| FL-6 | No safe full-replacement abstraction | Load-before-save invariant |
-| FL-7 | No hierarchical scope control | Normalized tuple selector |
-| FL-8 | Hard-coded development ports | Environment-driven origin selection |
-| FL-9 | `ApiService.post()` mutates JSON bodies | Immutable enrichment |
-| FL-10 | Missing multi-user/multi-app lifecycle tests | Context isolation coverage |
+| FL-1 | One live reactive authority; persisted values are not trusted before live loading | Complete |
+| FL-2 | Typed server-validated tenant and normalized scope context | Complete |
+| FL-3 | Single-flight refresh, authorization version, clear and replacement-user lifecycle | Complete |
+| FL-4 | Typed denial coordinator for authentication, authorization, rate-limit and availability codes | Complete |
+| FL-5 | One programmatic policy service used by guards and UI directives | Complete |
+| FL-6 | Load-before-save replacement state, checklist and summary | Complete |
+| FL-7 | Structurally validated hierarchical tuple selector | Complete |
+| FL-8 | Environment-controlled backend-origin selection | Complete |
+| FL-9 | Immutable JSON enrichment | Complete |
+| FL-10 | Revocation and sequential-user isolation tests | Complete |
 
 ## 6. `system-frontend-21` gap list
+
+The following list records the original implementation drivers. Items within the authorization scope were completed through Phases 0–7; broader administration features remain governed by the system-specific plan.
 
 The system-specific plan remains authoritative; the cross-app priorities are:
 
@@ -189,6 +201,8 @@ The system-specific plan remains authoritative; the cross-app priorities are:
 10. Add route, UI action, replacement, hierarchy, refresh, error, and Playwright tenant-matrix tests.
 
 ## 7. `kyc-frontend-21` gap list
+
+The following list records the original implementation drivers. The access-control, direct-profile, typing, multipart, photo/document, scope-presentation, demo-route, and automated-test work was completed through Phases 0–7. Future workflow-runtime integration remains intentionally separate.
 
 ### KYC-1 — Direct routes depend on router state
 
@@ -252,7 +266,9 @@ The preview handler mutates local state without calling the backend workflow run
 
 Add service, direct-route, action-policy, multipart allowlist, object URL, photo/document, and cross-tenant browser tests.
 
-## 8. Required backend additions
+## 8. Backend contract implementation
+
+The contracts below are implemented and protected by explicit API metadata. Thumbnail batching and workflow-runtime integration remain optional/future domain work where noted.
 
 ### Shared by both apps
 
@@ -278,6 +294,8 @@ Every new protected endpoint requires explicit API metadata, client API/feature 
 
 ### Phase 0 — Immediate safety
 
+**Status: Complete.**
+
 - Disable unresolved system client replacement editors.
 - Production-disable the KYC component demo.
 - Hide local-only workflow decisions.
@@ -286,6 +304,8 @@ Every new protected endpoint requires explicit API metadata, client API/feature 
 Gate: the current UI cannot silently erase grants or present nonfunctional security operations.
 
 ### Phase 1 — Shared authorization core
+
+**Status: Complete.** `ApplicationContextService`, `AuthorizationPolicyService`, the route guard, UI directive, and denial coordinator share one live authority.
 
 - Implement effective tenant/scope models and reactive context in `platform`.
 - Consolidate privilege/policy evaluation.
@@ -296,6 +316,8 @@ Gate: both apps consume one live, fail-closed authorization source.
 
 ### Phase 2 — Shared safety UI
 
+**Status: Complete.** Replacement state/checklist/summary, hierarchical scope selection, and denial-state presentation are implemented without a `platform -> shared` dependency.
+
 - Implement replacement state/checklist and confirmation summary in `shared`.
 - Implement hierarchical scope selector.
 - Implement reusable denial/configuration/retry presentation.
@@ -303,6 +325,8 @@ Gate: both apps consume one live, fail-closed authorization source.
 Gate: shared components remain domain-neutral and dependency direction is preserved.
 
 ### Phase 3 — Backend contract completion
+
+**Status: Complete.** Application context includes effective tenant/scopes and authorization version; protected client/user assignment reads and writes, client detail, and scoped KYC profile detail are metadata-covered.
 
 - Extend application context.
 - Add client detail and current assignments.
@@ -315,6 +339,8 @@ Gate: every editable or directly addressable state has an authoritative protecte
 
 ### Phase 4 — Align `system-frontend-21`
 
+**Status: Complete for this plan's access-control scope.** The app uses shared context and safe replacement, removes authorization bypasses/JWT authority decoding, and gates specialized actions including backup execution/download.
+
 - Adopt shared context, replacement, and scope primitives.
 - Remove JWT decoding and route bypasses.
 - Gate every specialized action.
@@ -323,6 +349,8 @@ Gate: every editable or directly addressable state has an authoritative protecte
 Gate: VIEW-only, specialized-action, and full-admin accounts see and perform exactly their allowed operations.
 
 ### Phase 5 — Align `kyc-frontend-21`
+
+**Status: Complete for this plan's access-control scope.** Direct routes load profiles by profile ID, requests are typed and allowlisted, and photo/document actions use scoped IDs and exact policies.
 
 - Add direct profile loading and typed services.
 - Implement document flows.
@@ -334,6 +362,8 @@ Gate: direct URLs work through scoped backend reads and profile/global IDs canno
 
 ### Phase 6 — Revocation and multi-tenant validation
 
+**Status: Complete at unit/integration level.** Tests cover active-session privilege removal, sequential browser users, hostname/client/tenant contradictions, missing effective scope, tenant/business/branch inheritance, and sibling/parent denial.
+
 - Verify privilege removal during active sessions.
 - Verify sequential users in one browser do not share context.
 - Test hostname/token/client/scope mismatches.
@@ -343,9 +373,19 @@ Gate: the next request and UI refresh reflect revocation without logout.
 
 ### Phase 7 — Automated enforcement gate
 
+**Status: Complete for the automated local gate.**
+
 - Run shared unit tests, app HTTP/component tests, Playwright matrices, backend filter-chain tests, API metadata coverage, and object-authorization tests.
 
 Gate: enforcement mode is enabled and the complete frontend/backend authorization suite passes.
+
+Implemented gate behavior:
+
+- Default and production enforcement is `ENFORCE`; production cannot start in `REPORT` or `DISABLED`.
+- Both Angular applications have Playwright checks proving unauthenticated direct navigation cannot render protected administration or scoped KYC data.
+- The focused backend gate covers enforcement configuration, API metadata, filter-chain decisions, revocation, request-context intersection, and object authorization.
+- The full backend suite runs with the Java 21-compatible Mockito agent configuration.
+- The authenticated VIEW-only/specialized/full-admin and cross-tenant browser matrix remains deployment verification; it is not represented as a local mocked-browser result.
 
 ## 10. Test ownership
 
@@ -411,7 +451,27 @@ mvn test
 
 Browser verification requires registered `WEB` and `SYSTEM_ADMIN_WEB` clients, synchronized API metadata, client API/feature/tenant grants, and tenant-resolvable hostnames.
 
+### Latest gate result — 2026-08-14
+
+| Gate | Result |
+|---|---|
+| `frontend-libs-21` platform/shared builds | Passed |
+| `frontend-libs-21` unit tests | 57 passed |
+| `system-frontend-21` unit tests | 3 passed |
+| `system-frontend-21` production build | Passed; existing initial-bundle budget warning remains |
+| `system-frontend-21` Playwright protected-route gate | 3 passed |
+| `kyc-frontend-21` unit tests | 4 passed |
+| `kyc-frontend-21` production build | Passed; existing initial-bundle and component-style budget warnings remain |
+| `kyc-frontend-21` Playwright protected-route gate | 3 passed |
+| Focused backend authorization gate | 35 passed |
+| Full backend suite | 160 run, 0 failures, 5 skipped because Docker/Testcontainers was unavailable |
+| Dependency/secret checks | No `platform -> shared` import and no bundled confidential client secret detected |
+
+The Playwright ports are isolated at `15301` for the system frontend and `15300` for the KYC frontend to avoid collisions with normal development servers. Matching Playwright Chromium runtimes must be installed in CI (for example, `npx playwright install chromium`).
+
 ## 12. Definition of done
+
+All code-level definition-of-done items below are satisfied. The only outstanding evidence is the deployment-owned authenticated browser matrix described above.
 
 - Both apps use one shared live authorization context.
 - Effective tenant and scopes come from backend request context.
@@ -425,4 +485,3 @@ Browser verification requires registered `WEB` and `SYSTEM_ADMIN_WEB` clients, s
 - Browser bundles contain no confidential client secret.
 - Shared infrastructure is isolated in `frontend-libs-21`; domain work remains app-owned.
 - Shared, app, Playwright, metadata, filter-chain, and object-authorization tests pass.
-

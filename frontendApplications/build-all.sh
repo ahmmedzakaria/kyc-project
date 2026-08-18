@@ -51,6 +51,13 @@ build_project "@nexacore/shared" \
     "$SCRIPT_DIR/frontend-libs-21" \
     "npx ng build shared"
 
+# Consuming apps' .angular/cache and node_modules/.vite can keep serving a
+# pre-bundled dependency graph that predates the platform/shared rebuild
+# above — clear both before building any app against the fresh dist/ output.
+echo ""
+echo "==> Clearing Angular/Vite caches before app builds"
+"$SCRIPT_DIR/clean-cache.sh"
+
 build_project "kyc-frontend-21" \
     "$SCRIPT_DIR/kyc-frontend-21" \
     "npm run build"

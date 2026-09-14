@@ -123,6 +123,8 @@ navigation structure were introduced.
 | 99 | Privilege frontend | Component README | [privilege-frontend/README.md](../privilege-frontend/README.md) | Indexed |
 | 100 | Tools | Component README | [tools/jasypt-encrypt/README.md](../tools/jasypt-encrypt/README.md) | Indexed |
 | 101 | Documentation | Index | [docs/markdown-inventory.md](markdown-inventory.md) | Indexed |
+| 102 | AI evaluation | Reference/guide | [ai-evaluation/CONTROL_CONFIGURATION.md](../ai-evaluation/CONTROL_CONFIGURATION.md) | Indexed |
+| 103 | Repository | Plan/roadmap | [AI_DEVELOPMENT_TOKEN_OPTIMIZATION_IMPLEMENTATION_PLAN.md](../AI_DEVELOPMENT_TOKEN_OPTIMIZATION_IMPLEMENTATION_PLAN.md) | Indexed |
 
 ## Maintenance
 

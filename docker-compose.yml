@@ -98,7 +98,9 @@ services:
       - ./backend/src/main/java/com/nexacore/servicesmodule/firebaseauthservice/firebase-service-account.json:/opt/nexacore/firebase/firebase-service-account.json:ro
 
   nexacore-frontend:
-    build: ./frontend
+    build:
+      context: ./frontendApplications
+      dockerfile: nexacore-frontend-21/Dockerfile
     container_name: nexacore-frontend
     ports:
       - "4200:80"

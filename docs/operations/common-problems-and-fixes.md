@@ -9,6 +9,7 @@ fix, and verification steps.
 | # | Area | Problem | Typical cause | Guide |
 |---:|---|---|---|---|
 | 1 | Navigation | Menu click redirects to the dashboard | The backend menu URL does not match an Angular route, so the wildcard route handles it | [Open guide](#menu-click-redirects-to-the-dashboard) |
+| 2 | Navigation | Menu destination is not implemented | The backend exposes a menu before its frontend page is available | [Open guide](#menu-destination-is-not-implemented) |
 
 ## Menu click redirects to the dashboard
 
@@ -120,3 +121,54 @@ same route correction.
   the intended client application.
 - Treat a wildcard redirect as a fallback, not evidence that navigation
   succeeded.
+
+## Menu destination is not implemented
+
+### Symptom
+
+A backend navigation feature is active and visible to the user, but the target
+frontend has no matching Angular page yet.
+
+### Expected behavior
+
+The system frontend displays the `Development in progress` page inside the
+authenticated application layout. The page includes an SVG development
+illustration, explains that the destination is still being built, shows the
+requested path, and provides a link to the dashboard.
+
+The fallback route is the final child of the authenticated layout route:
+
+```typescript
+{
+    path: '**',
+    loadComponent: () =>
+        import('@nexacore/shared')
+            .then(m => m.DevelopmentInProgressComponent),
+    data: { public: true },
+}
+```
+
+`data.public` bypasses route-policy lookup because an unavailable route cannot
+have a matching route policy. Authentication is still required by the parent
+layout route.
+
+`DevelopmentInProgressComponent` is exported by `@nexacore/shared`. Applications
+should reuse that component for their final authenticated child route instead of
+creating an app-specific fallback page.
+
+### Verification
+
+1. Sign in to the system frontend.
+2. Open an unimplemented path, such as `/future-administration-page`.
+3. Confirm the authenticated shell remains visible.
+4. Confirm the development page displays the requested path.
+5. Confirm `Go to dashboard` opens `/dashboard`.
+6. Confirm existing valid routes continue to load their normal pages.
+
+### Adding the real page later
+
+1. Add the concrete Angular route before the `**` fallback route.
+2. Add its route-policy mapping and backend navigation route.
+3. Verify the user's application and role privileges expose the menu.
+4. Remove any temporary compatibility redirect for that path when cached legacy
+   navigation is no longer supported.

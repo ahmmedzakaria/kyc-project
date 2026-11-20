@@ -42,6 +42,7 @@ When changing backend code:
 - Prefer Spring configuration properties and environment variables over hard-coded deployment values.
 - Validate auth changes against both local JWT behavior and SSO/Keycloak configuration where relevant.
 - Do not broaden CORS, token, or datasource behavior without an explicit reason.
+- Do not create or modify database migration scripts without the user's explicit permission. Present the proposed migration for review and obtain approval before writing it to the repository.
 
 ### Person, Organization, And Authorization Model
 

@@ -10,6 +10,7 @@ fix, and verification steps.
 |---:|---|---|---|---|
 | 1 | Navigation | Menu click redirects to the dashboard | The backend menu URL does not match an Angular route, so the wildcard route handles it | [Open guide](#menu-click-redirects-to-the-dashboard) |
 | 2 | Navigation | Menu destination is not implemented | The backend exposes a menu before its frontend page is available | [Open guide](#menu-destination-is-not-implemented) |
+| 3 | Authorization | Visible menu opens Access denied | The menu privilege exists, but the application route policy is missing | [Open guide](#visible-menu-opens-access-denied) |
 
 ## Menu click redirects to the dashboard
 
@@ -75,30 +76,22 @@ It changes the layout feature linked to privilege `11020100481` to:
 /access-control/client-applications
 ```
 
-The system frontend also retains this compatibility redirect so navigation data
-cached before the migration remains usable:
+That redirect was temporary. After the tenant-scoped feature-permission page
+was implemented,
+[V79__restore_client_feature_permission_navigation_route.sql](../../backend/src/main/resources/db/migration/system/V79__restore_client_feature_permission_navigation_route.sql)
+restored the menu route to `/client-feature-permission`.
 
-```typescript
-{
-    path: 'client-feature-permission',
-    redirectTo: 'access-control/client-applications',
-    pathMatch: 'full',
-}
-```
+The system frontend now loads the dedicated tenant-scoped feature-permission
+page for this route.
 
-The same issue affected `Client API Permission`. Migration
-[V77__fix_client_api_permission_navigation_route.sql](../../backend/src/main/resources/db/migration/system/V77__fix_client_api_permission_navigation_route.sql)
-changes the feature linked to privilege `11020100381` from
-`/access-control/client-api-permission` to the client-application page. Cached
-navigation is supported by this compatibility redirect:
-
-```typescript
-{
-    path: 'access-control/client-api-permission',
-    redirectTo: 'access-control/client-applications',
-    pathMatch: 'full',
-}
-```
+`Client API Permission` was temporarily redirected to the client-application
+page by
+[V77__fix_client_api_permission_navigation_route.sql](../../backend/src/main/resources/db/migration/system/V77__fix_client_api_permission_navigation_route.sql).
+After the focused API-permission UI was added,
+[V78__restore_client_api_permission_navigation_route.sql](../../backend/src/main/resources/db/migration/system/V78__restore_client_api_permission_navigation_route.sql)
+restored privilege `11020100381` to `/access-control/client-api-permission`.
+That route now loads the application selector and API-assignment workflow
+directly; it is no longer a compatibility redirect.
 
 Do not edit an already deployed Flyway migration or correct only the current
 database row manually. Add a new migration so every environment receives the
@@ -106,19 +99,18 @@ same route correction.
 
 ### Verification
 
-1. Start the backend and confirm Flyway applies migrations `76` and `77`
+1. Start the backend and confirm Flyway applies migrations `76` through `80`
    successfully.
 2. Refresh the application context or sign in again to reload navigation data.
 3. Confirm the menu API returns:
 
    ```text
-   /access-control/client-applications
+   /client-feature-permission
    ```
 
-4. Select `Client Feature Permission` and verify that the client-application list
-   opens.
-5. Open an application and verify that feature permissions load and save for the
-   resolved tenant.
+4. Select `Client Feature Permission` and verify that its dedicated page opens.
+5. Select an application and verify that feature permissions load and save for
+   the resolved tenant.
 6. Build the frontend:
 
    ```bash
@@ -136,6 +128,69 @@ same route correction.
   the intended client application.
 - Treat a wildcard redirect as a fallback, not evidence that navigation
   succeeded.
+
+## Visible menu opens Access denied
+
+### Symptom
+
+`Client Feature Permission` is visible in the navigation menu, but selecting it
+opens the access-denied page with this message:
+
+```text
+Your current application privileges do not allow this page.
+```
+
+### Root cause
+
+Menu visibility and route authorization use separate configuration:
+
+- `sys_layout_feature_privileges` determines whether the menu is visible.
+- `sys_layout_route_policies` and
+  `sys_layout_route_policy_privileges` determine whether Angular's
+  `routePrivilegeGuard` allows the destination.
+
+The user can therefore have privilege `11020100481` and see the menu while the
+route still fails closed when `/client-feature-permission` has no effective
+route policy for `SYSTEM_ADMIN_WEB`.
+
+### Diagnosis
+
+Run [query_system_db.sql](../../backend/db_script/query_system_db.sql) for the
+affected user, tenant, roles, and client. Check these columns on the Client
+Feature Permission row:
+
+- `route_policy_id`
+- `route_policy_scope`
+- `route_policy_match_mode`
+- `route_policy_privilege_codes`
+
+`route_policy_scope = MISSING` confirms that navigation visibility exists but
+route authorization is not configured.
+
+### Fix
+
+Migration
+[V80__authorize_client_feature_permission_route.sql](../../backend/src/main/resources/db/migration/system/V80__authorize_client_feature_permission_route.sql)
+creates or reactivates the application-specific route policy for
+`SYSTEM_ADMIN_WEB` and `/client-feature-permission`, then links it to Client
+Feature Permission Assign privilege `11020100481` with `ANY` matching.
+
+The equivalent correction for Client API Permission is
+[V81__authorize_client_api_permission_route.sql](../../backend/src/main/resources/db/migration/system/V81__authorize_client_api_permission_route.sql).
+It authorizes `/access-control/client-api-permission` for `SYSTEM_ADMIN_WEB`
+and links the route policy to Client API Permission Assign privilege
+`11020100381`.
+
+### Verification
+
+1. Confirm Flyway applies migration `80` successfully.
+2. Refresh the application context or sign out and sign in again.
+3. Run `query_system_db.sql` and confirm the route-policy scope is
+   `APPLICATION` and its privilege codes include `11020100481`.
+4. Select the menu and confirm the dedicated Client Feature Permissions page
+   opens instead of `/access-denied`.
+5. Repeat the query and menu check for Client API Permission. Confirm its route
+   policy includes `11020100381` and its dedicated page opens.
 
 ## Menu destination is not implemented
 

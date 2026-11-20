@@ -125,6 +125,7 @@ navigation structure were introduced.
 | 101 | Documentation | Index | [docs/markdown-inventory.md](markdown-inventory.md) | Indexed |
 | 102 | AI evaluation | Reference/guide | [ai-evaluation/CONTROL_CONFIGURATION.md](../ai-evaluation/CONTROL_CONFIGURATION.md) | Indexed |
 | 103 | Repository | Plan/roadmap | [AI_DEVELOPMENT_TOKEN_OPTIMIZATION_IMPLEMENTATION_PLAN.md](../AI_DEVELOPMENT_TOKEN_OPTIMIZATION_IMPLEMENTATION_PLAN.md) | Indexed |
+| 104 | Documentation | Reference/guide | [docs/operations/common-problems-and-fixes.md](operations/common-problems-and-fixes.md) | Indexed |
 
 ## Maintenance
 

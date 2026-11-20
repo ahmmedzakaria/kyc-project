@@ -68,8 +68,8 @@ rg -n "path: '\*\*'|redirectTo: 'dashboard'" \
 ### Fix
 
 The durable database correction is migration
-`V76__fix_client_feature_permission_navigation_route.sql`. It changes the layout
-feature linked to privilege `11020100481` to:
+[V76__fix_client_feature_permission_navigation_route.sql](../../backend/src/main/resources/db/migration/system/V76__fix_client_feature_permission_navigation_route.sql).
+It changes the layout feature linked to privilege `11020100481` to:
 
 ```text
 /access-control/client-applications
@@ -86,13 +86,28 @@ cached before the migration remains usable:
 }
 ```
 
+The same issue affected `Client API Permission`. Migration
+[V77__fix_client_api_permission_navigation_route.sql](../../backend/src/main/resources/db/migration/system/V77__fix_client_api_permission_navigation_route.sql)
+changes the feature linked to privilege `11020100381` from
+`/access-control/client-api-permission` to the client-application page. Cached
+navigation is supported by this compatibility redirect:
+
+```typescript
+{
+    path: 'access-control/client-api-permission',
+    redirectTo: 'access-control/client-applications',
+    pathMatch: 'full',
+}
+```
+
 Do not edit an already deployed Flyway migration or correct only the current
 database row manually. Add a new migration so every environment receives the
 same route correction.
 
 ### Verification
 
-1. Start the backend and confirm Flyway applies migration `76` successfully.
+1. Start the backend and confirm Flyway applies migrations `76` and `77`
+   successfully.
 2. Refresh the application context or sign in again to reload navigation data.
 3. Confirm the menu API returns:
 

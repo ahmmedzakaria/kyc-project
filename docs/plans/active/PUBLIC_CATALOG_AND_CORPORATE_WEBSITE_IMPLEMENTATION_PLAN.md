@@ -563,6 +563,15 @@ Exit criteria:
 
 ### Phase 2: backend and deployment foundation — 5 to 8 working days
 
+Implementation status (2026-11-24): the `catalogmodule` boundary, separated
+public/admin foundation DTOs, verified-host tenant context, exact public route,
+catalog privilege catalog, media configuration boundary, SSR container, Nginx
+edge proxy, Compose services, Modulith checks, API metadata checks, and focused
+security tests are implemented. The `catalog_db` V1 schema was explicitly
+approved and is implemented with datasource, Flyway, JPA, transaction manager,
+health, environment, Compose, and backup wiring. PostgreSQL rollback validation
+passes; automated clean/repeat migration coverage is included.
+
 - Finalize API contracts from the validated frontend view models and document
   public versus administrative DTO boundaries.
 - Declare `catalogmodule` and update Modulith documentation and tests.

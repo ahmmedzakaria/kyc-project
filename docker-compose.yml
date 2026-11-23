@@ -26,6 +26,12 @@ services:
       SPRING_DATASOURCE_LOG_USERNAME: postgres
       SPRING_DATASOURCE_LOG_PASSWORD: 123456
       SPRING_DATASOURCE_LOG_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_CATALOG_JDBC_URL: jdbc:postgresql://host.docker.internal:5433/catalog_db
+      SPRING_DATASOURCE_CATALOG_USERNAME: postgres
+      SPRING_DATASOURCE_CATALOG_PASSWORD: ${DB_CATALOG_PASSWORD:-123456}
+      SPRING_DATASOURCE_CATALOG_DRIVER_CLASS_NAME: org.postgresql.Driver
+      CATALOG_MEDIA_NAMESPACE: ${CATALOG_MEDIA_NAMESPACE:-catalog}
+      CATALOG_MEDIA_PUBLIC_PATH: ${CATALOG_MEDIA_PUBLIC_PATH:-/api/v1/public/media}
       AUTH_BOOTSTRAP_TENANT_ID: ${AUTH_BOOTSTRAP_TENANT_ID:-1}
       AUTH_BOOTSTRAP_SYSTEM_PASSWORD: ${AUTH_BOOTSTRAP_SYSTEM_PASSWORD:?Set AUTH_BOOTSTRAP_SYSTEM_PASSWORD before starting the backend}
       BACKUP_ENABLED: ${BACKUP_ENABLED:-false}
@@ -106,6 +112,31 @@ services:
       - "4200:80"
     depends_on:
       - nexacore-backend
+    networks:
+      - app_network
+
+  nexacore-catalog-renderer:
+    build:
+      context: ./frontendApplications
+      dockerfile: catalog-frontend-21/Dockerfile
+    container_name: nexacore-catalog-renderer
+    environment:
+      PORT: 4000
+    expose:
+      - "4000"
+    networks:
+      - app_network
+
+  nexacore-catalog-frontend:
+    build:
+      context: ./frontendApplications
+      dockerfile: catalog-frontend-21/Dockerfile.nginx
+    container_name: nexacore-catalog-frontend
+    ports:
+      - "4400:80"
+    depends_on:
+      - nexacore-backend
+      - nexacore-catalog-renderer
     networks:
       - app_network
 

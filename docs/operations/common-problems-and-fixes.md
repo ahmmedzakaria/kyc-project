@@ -11,6 +11,108 @@ fix, and verification steps.
 | 1 | Navigation | Menu click redirects to the dashboard | The backend menu URL does not match an Angular route, so the wildcard route handles it | [Open guide](#menu-click-redirects-to-the-dashboard) |
 | 2 | Navigation | Menu destination is not implemented | The backend exposes a menu before its frontend page is available | [Open guide](#menu-destination-is-not-implemented) |
 | 3 | Authorization | Visible menu opens Access denied | The menu privilege exists, but the application route policy is missing | [Open guide](#visible-menu-opens-access-denied) |
+| 4 | Startup / Privileges | Active logical privilege module is not configured: 12 (Catalog) | The Catalog privilege provider starts before its trusted module hierarchy exists in `system_db` | [Open guide](#catalog-privilege-module-is-not-configured) |
+
+## Catalog privilege module is not configured
+
+### Symptom
+
+Backend startup fails while synchronizing module privileges:
+
+```text
+java.lang.IllegalStateException: Active logical privilege module is not configured: 12 (Catalog)
+    at com.nexacore.systemmodule.privilege.catalog.service.implementations.SystemPrivilegeRegistryServiceImpl.resolveModule(...)
+```
+
+The failure can appear after adding `CatalogPrivilegeProvider`, even though the
+provider and `ModuleRepository` compile successfully.
+
+### Root cause
+
+`ApplicationModule.CATALOG` declares logical privilege module code `12`.
+`SystemPrivilegeRegistryServiceImpl` intentionally treats the database catalog
+as trusted configuration: it will synchronize features and actions only when an
+active logical module and submodule already exist. It does not create module
+ownership or navigation structure from application code.
+
+The affected `system_db` has no complete Catalog hierarchy in:
+
+- `sys_layout_module_groups`
+- `sys_physical_modules` and `sys_physical_submodules`
+- `sys_priv_modules` and `sys_priv_submodules`
+- `sys_layout_navigation_categories`
+
+Adding a repository fallback or automatically creating rows in
+`SystemPrivilegeRegistryServiceImpl` would weaken this fail-closed boundary and
+is not the correct fix.
+
+### Diagnosis
+
+Check for the logical module and submodule:
+
+```sql
+SELECT id, navigation_module_code, module_priv_code, active
+FROM sys_priv_modules
+WHERE module_priv_code = '12';
+
+SELECT submodule.submodule_priv_code,
+       submodule.submodule_code,
+       submodule.active
+FROM sys_priv_submodules submodule
+JOIN sys_priv_modules module ON module.id = submodule.module_id
+WHERE module.module_priv_code = '12';
+```
+
+The required result is one active `CATALOG` module with code `12` and one active
+`CONTENT` submodule with code `01`. The module also needs active navigation
+categories mapping `SETUP`, `OPERATION`, and `REPORT` to feature-type codes
+`01`, `02`, and `03` respectively.
+
+### Fix
+
+Apply
+[V82__register_catalog_privilege_module.sql](../../backend/src/main/resources/db/migration/system/V82__register_catalog_privilege_module.sql).
+It idempotently registers the physical and logical Catalog hierarchy, navigation
+categories, audit values, and the links required by privilege synchronization.
+
+Do not manually insert only `sys_priv_modules`, bypass the active check in
+`ModuleRepository`, or edit an already deployed migration. A partial seed merely
+moves the startup failure to submodule or navigation-category resolution.
+
+### Verification
+
+1. Restart the backend and confirm Flyway records system migration `82` as
+   successful.
+2. Confirm startup no longer reports module `12` as missing.
+3. Verify the registered hierarchy:
+
+   ```sql
+   SELECT module.module_priv_code,
+          module.navigation_module_code,
+          submodule.submodule_priv_code,
+          submodule.submodule_code
+   FROM sys_priv_modules module
+   JOIN sys_priv_submodules submodule ON submodule.module_id = module.id
+   WHERE module.module_priv_code = '12';
+   ```
+
+4. Confirm catalog privileges such as view `12010100101` and publish
+   `12010100123` are synchronized.
+5. Run the focused checks:
+
+   ```bash
+   cd backend
+   mvn -Dtest=SystemDatabaseMigrationTest,SystemPrivilegeRegistryServiceImplTest,CatalogPrivilegeProviderTest test
+   ```
+
+### Prevention
+
+- Add the physical/logical module seed migration before enabling a new
+  `ModulePrivilegeProvider` in an environment.
+- Keep `ApplicationModule`, `ApplicationSubmodule`, system catalog migrations,
+  and navigation categories aligned.
+- Preserve fail-closed module resolution; trusted ownership structure belongs
+  in versioned `system_db` migrations.
 
 ## Menu click redirects to the dashboard
 

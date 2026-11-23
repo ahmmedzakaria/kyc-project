@@ -10,3 +10,5 @@ file, then add confirmed active plans here with an owner and review date.
   - Owner: unassigned
   - Review date: 2026-09-29
   - Status: proposed; architecture decisions and business scope require approval
+  - Phase 0 evidence: [Experience Definition](PUBLIC_CATALOG_PHASE_0_EXPERIENCE_DEFINITION.md)
+  - Phase 1 evidence: [Frontend Foundation](PUBLIC_CATALOG_PHASE_1_FRONTEND_FOUNDATION.md)

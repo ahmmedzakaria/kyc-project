@@ -7,6 +7,7 @@
 
 ## Applications and libraries
 
+- [Catalog frontend 21](catalog-frontend-21/README.md)
 - [Frontend libraries 21](frontend-libs-21/README.md)
 - [Layout 21](layout-21/README.md)
 - [Log frontend modules](log-frontend-21/MODULES.md)
@@ -17,4 +18,3 @@
 
 See the [complete Markdown inventory](../docs/markdown-inventory.md) for agent
 instructions, changelogs, proofs of concept, and all module-local documents.
-

@@ -32,9 +32,10 @@ The completed implementation will provide:
    testimonials, galleries, videos, news, contact details, and legal pages.
 4. Product quote requests, general enquiries, and newsletter subscriptions.
 5. An authenticated administration area governed by NexaCore privileges.
-6. Draft, review, publish, unpublish, and archive controls with an audit trail.
-7. Tenant-safe operation if the platform is configured to serve more than one
-   public site.
+6. Role-controlled draft, publish, unpublish, and archive controls with an
+   audit trail.
+7. Tenant-owned multi-site operation with trusted hostname-based tenant
+   resolution.
 8. Observable, backed-up, deployable services consistent with the existing
    Docker Compose topology.
 
@@ -86,19 +87,20 @@ The completed implementation will provide:
 
 ## 4. Mandatory architecture decisions
 
-Record these decisions before starting the schema migration. No implementation
-phase may silently choose a different model.
+The decisions recorded below are authoritative for implementation. No phase
+may silently choose a different model. Changes require an explicit update to
+this plan and the corresponding architecture decision record before schema or
+application work proceeds.
 
 ### ADR-CATALOG-001: site tenancy
 
-Choose one:
+Decision: implement multi-site mode. Every content and catalog aggregate is
+tenant-owned, and a trusted hostname mapping resolves the tenant for public
+requests.
 
-- Single-site mode: one public corporate catalog without tenant ownership.
-- Multi-site mode: every content and catalog aggregate is tenant-owned, and a
-  trusted hostname mapping resolves the tenant for public requests.
-
-Recommendation: implement tenant-capable persistence from the start if this
-capability will be sold to NexaCore tenants. A branch or business identifier
+Every tenant-owned table and every repository operation, including direct-ID
+and slug reads, search, writes, archive operations, media access, previews, and
+exports, must include the tenant predicate. A branch or business identifier
 must not be added unless there is an explicit publishing requirement at that
 level. Unknown, inactive, or ambiguous hostnames must fail closed. Public
 tenant context must never be accepted from a caller-controlled tenant header.
@@ -119,27 +121,25 @@ client-side JavaScript.
 
 ### ADR-CATALOG-004: publication workflow
 
-Choose either:
+Decision: implement simple role-controlled draft/publish transitions for the
+MVP. Integration with the existing workflow module and author/reviewer
+separation is deferred.
 
-- Simple role-controlled draft/publish transitions for MVP.
-- Integration with the existing workflow module for author/reviewer separation.
-
-Recommendation: use simple transitions in the first vertical slice but model
-publication state and revision metadata so workflow integration does not
-require a data redesign.
+Model publication state and revision metadata so later workflow integration
+does not require a data redesign. Only users holding the applicable content
+management and publication privileges may perform each transition.
 
 ### ADR-CATALOG-005: localized content persistence
 
-Choose either dedicated translation tables keyed by aggregate and locale, or
-locale-specific content records linked to a stable aggregate identity. Do not
-store all translations in unvalidated free-form JSON. The chosen model must
-support locale-aware uniqueness, fallback, publication, search, sitemap links,
-and later addition of a language without a schema redesign.
+Decision: use aggregate-specific translation tables for translated fields.
+Keep operational fields, relationships, publication state, and audit metadata
+on the stable aggregate. Do not store translations in unvalidated free-form
+JSON.
 
-Recommendation: use aggregate-specific translation tables for fields that are
-translated and keep operational fields, relationships, publication state, and
-audit metadata on the stable aggregate. Require English for launch and permit
-Bengali content to be completed incrementally.
+The translation model must support tenant- and locale-aware uniqueness,
+fallback, publication, search, sitemap links, and later addition of a language
+without a schema redesign. English content is required for launch; Bengali
+content may be completed incrementally.
 
 ## 5. Architecture
 
@@ -199,9 +199,9 @@ Authenticated administrator
 Use the following state machine:
 
 ```text
-DRAFT -> IN_REVIEW -> PUBLISHED -> ARCHIVED
-  ^         |              |
-  +---------+              -> DRAFT (new revision)
+DRAFT -> PUBLISHED -> ARCHIVED
+  ^          |
+  +----------+ (new revision or unpublish)
 ```
 
 Only `PUBLISHED` records whose `publish_at` is absent or in the past and whose
@@ -212,9 +212,9 @@ next sitemap build.
 ## 6. Data model
 
 All persistent tables use the `catalog_` prefix and include `created_at`,
-`updated_at`, `created_by`, and `updated_by`. In multi-site mode, all owned
-records also contain a non-null `tenant_id` and all unique constraints include
-that tenant key where appropriate.
+`updated_at`, `created_by`, and `updated_by`. All owned records contain a
+non-null `tenant_id`, and all unique constraints include that tenant key where
+appropriate.
 
 ### 6.1 Core catalog
 
@@ -358,7 +358,6 @@ CATALOG_PRODUCT_MANAGE
 CATALOG_MEDIA_MANAGE
 CATALOG_CONTENT_VIEW
 CATALOG_CONTENT_MANAGE
-CATALOG_CONTENT_REVIEW
 CATALOG_CONTENT_PUBLISH
 CATALOG_ENQUIRY_VIEW
 CATALOG_ENQUIRY_MANAGE
@@ -476,8 +475,8 @@ conflict handling, preview, and publish confirmation are required.
 
 ### 10.3 Localization and accessibility
 
-- Use Transloco and locale-specific content records or translation tables;
-  decide the exact persistence pattern in ADR-CATALOG-005.
+- Use Transloco and aggregate-specific translation tables as established by
+  ADR-CATALOG-005.
 - English is required for launch; Bengali content must be supported without a
   schema migration.
 - Meet WCAG 2.2 AA for public templates and primary admin workflows.
@@ -486,80 +485,147 @@ conflict handling, preview, and publish confirmation are required.
 
 ## 11. Delivery phases
 
-Each phase ends with demonstrable acceptance evidence. Do not build all CRUD
-screens before proving the public vertical slice.
+Each phase ends with demonstrable acceptance evidence. Early phases deliberately
+prioritize work that does not depend on backend persistence or completed APIs.
+The public experience is first built against typed fixture data, then connected
+to backend contracts through replaceable repository/API adapters. Do not build
+all CRUD screens before proving the integrated public vertical slice.
 
-### Phase 0: discovery and decisions — 3 to 5 working days
+### Phase 0: discovery, content model, and experience definition — 3 to 5 working days
+
+Implementation status: completed for review on 2026-11-23. The experience
+definition is recorded in
+[`PUBLIC_CATALOG_PHASE_0_EXPERIENCE_DEFINITION.md`](PUBLIC_CATALOG_PHASE_0_EXPERIENCE_DEFINITION.md),
+and the shared contracts, fixtures, route manifest, and design tokens are in
+`frontendApplications/frontend-libs-21/projects/catalog`.
 
 - Inventory approved brand assets and authoritative content.
-- Confirm single-site or multi-site operation.
-- Confirm `catalog_db`, rendering strategy, publication workflow, localization
-  model, CAPTCHA provider, analytics provider, and public domain topology.
-- Produce wireframes and content inventory for every launch route.
-- Establish performance, availability, retention, and accessibility targets.
-- Write ADRs and threat-model public submissions and rich-content rendering.
+- Define the public information architecture, route map, navigation hierarchy,
+  content types, field inventory, responsive breakpoints, and user journeys.
+- Produce wireframes for every launch route and agree the visual direction,
+  typography, color tokens, spacing, imagery rules, and component inventory.
+- Define TypeScript view models and representative fixture datasets for site
+  settings, navigation, categories, products, services, articles, galleries,
+  and localized content.
+- Establish accessibility, SEO, performance, availability, and content-quality
+  targets.
+- Validate the approved multi-site hostname-resolution model conceptually
+  against existing tenant/domain controls; detailed backend integration is
+  deferred to Phase 2.
+- Confirm rendering strategy, public domain topology, CAPTCHA provider, and
+  analytics provider. Publication and localization follow ADR-CATALOG-004 and
+  ADR-CATALOG-005.
 
 Exit criteria:
 
 - ADR-CATALOG-001 through ADR-CATALOG-005 are approved.
 - Launch content owner and administrator roles are named.
-- No required content or external-provider decision is unknown.
+- Route map, wireframes, design tokens, typed view models, fixture scenarios,
+  and content workbook are reviewed.
+- No frontend-blocking content, brand, or external-provider decision is
+  unknown.
 
-### Phase 1: platform foundation — 5 to 7 working days
+### Phase 1: public frontend foundation and fixture-backed experience — 6 to 9 working days
 
-- Declare `catalogmodule` and update Modulith documentation/tests.
-- Configure `catalog_db`, JPA, transaction manager, Flyway, environment
-  variables, local bootstrap instructions, backup inclusion, and health checks.
-- Create initial audit-complete schema and seed only system/reference data.
+Implementation status: completed for review on 2026-11-23. The SSR application
+is in `frontendApplications/catalog-frontend-21`, consumes
+`@nexacore/catalog`, and is documented in
+[`PUBLIC_CATALOG_PHASE_1_FRONTEND_FOUNDATION.md`](PUBLIC_CATALOG_PHASE_1_FRONTEND_FOUNDATION.md).
+
+- Scaffold `catalog-frontend-21` with Angular SSR/prerender support, locale
+  routing, environment configuration, testing, linting, and an API-adapter
+  boundary that can initially read typed fixtures.
+- Implement design tokens, typography, page container, header, accessible
+  desktop/mobile navigation, breadcrumb, footer, language selector, loading,
+  empty, error, not-found, and degraded-media states.
+- Build fixture-backed home, about, product category, product list, product
+  detail, services, clients, partners, gallery, news, contact, privacy, and
+  terms templates.
+- Implement responsive product cards, category navigation, filters, pagination,
+  specification groups, document links, related products, article cards,
+  galleries, and `Request a quote` entry points without submitting data.
+- Add fixture-backed metadata, canonical URL, structured-data, sitemap, and
+  robots generation abstractions.
+- Add keyboard, responsive, component, accessibility, and primary Playwright
+  navigation coverage.
+- Use local licensed placeholders or synthetic fixtures only; do not copy the
+  reference website's content or assets.
+
+Exit criteria:
+
+- Every launch route is navigable using representative fixture content without
+  a running backend, PostgreSQL, Redis, MinIO, or Keycloak instance.
+- Layouts pass agreed responsive and keyboard checks, and required page states
+  are visibly reviewable.
+- SSR/prerender output contains meaningful fixture-backed HTML and metadata.
+- The fixture adapter can be replaced without changing page components.
+- Public frontend build, unit tests, and fixture-backed browser journeys pass.
+
+### Phase 2: backend and deployment foundation — 5 to 8 working days
+
+- Finalize API contracts from the validated frontend view models and document
+  public versus administrative DTO boundaries.
+- Declare `catalogmodule` and update Modulith documentation and tests.
+- Present the proposed `catalog_db` Flyway migration for explicit user review;
+  create or modify migration scripts only after approval as required by the
+  repository instructions.
+- After migration approval, configure `catalog_db`, JPA, transaction manager,
+  Flyway, environment variables, local bootstrap instructions, backup
+  inclusion, and health checks; create the audit-complete tenant-owned schema.
 - Register catalog privileges and administrative API definitions.
-- Configure catalog media namespace and public asset delivery policy.
-- Add exact public route patterns, rate-limiting foundation, and security tests.
-- Scaffold public SSR/prerender application and Compose/Nginx service.
+- Implement trusted hostname-to-tenant resolution with inactive, unknown, and
+  ambiguous hosts failing closed.
+- Configure the catalog media namespace and public asset-delivery policy.
+- Add exact public route patterns, administrative authentication, rate-limit
+  foundations, and security tests.
+- Add the public frontend deployment service and Nginx/proxy configuration.
 
 Exit criteria:
 
-- Clean database migration succeeds and repeat startup is idempotent.
+- Backend and frontend agree on versioned contracts without leaking entities or
+  administrative fields into public DTOs.
+- Clean approved migrations succeed and repeat startup is idempotent.
 - Modulith verification passes.
-- Anonymous users can access one explicit health/content endpoint but receive
-  401/403 for all catalog administration endpoints.
-- A protected administrator endpoint succeeds only with its privilege.
+- Hostname resolution returns exactly one active tenant or fails closed.
+- Anonymous users can reach only exact public endpoints; authenticated users
+  without catalog privileges cannot reach administration endpoints.
+- `docker compose config` succeeds for the added deployment configuration.
 
-### Phase 2: first vertical slice — 5 to 7 working days
+### Phase 3: integrated catalog vertical slice — 6 to 9 working days
 
-- Implement category, product, product-media, and product-document aggregates.
-- Implement admin create/edit/preview/publish for categories and products.
-- Implement public navigation, category list, product list, and product detail.
-- Add image optimization variants, alt text, PDF download, Redis caching, cache
-  invalidation, SEO metadata, and sitemap inclusion.
-- Seed a small synthetic demonstration catalog; do not copy reference content.
+- Implement tenant-owned category, category-translation, product,
+  product-translation, product-media, product-document, specification, and
+  related-product aggregates.
+- Implement public navigation, category, product list, product detail, media,
+  document, metadata, and sitemap APIs.
+- Replace fixture adapters for the catalog routes with API adapters while
+  retaining fixtures for isolated tests and Storybook-like review scenarios.
+- Implement administration create/edit/preview/publish/unpublish/archive for
+  categories and products in `system-frontend-21`.
+- Add MinIO media delivery, image variants, alternative text, PDF download,
+  Redis caching, and publication-driven cache invalidation.
+- Seed a small synthetic demonstration catalog through supported application
+  paths; do not copy reference content.
 
 Exit criteria:
 
-- An administrator can create, preview, publish, update, unpublish, and archive
-  a product.
-- Draft content cannot be retrieved through any public endpoint or guessed URL.
-- A product update becomes visible after publication without stale-cache errors.
-- Category and product URLs render indexable content and correct metadata.
+- An authorized administrator can create, preview, publish, update, unpublish,
+  and archive a tenant-owned product.
+- Draft, archived, expired, and cross-tenant content cannot be retrieved through
+  lists, search candidates, direct IDs, guessed slugs, media, or preview paths.
+- A published update becomes visible without stale-cache errors.
+- Integrated category and product URLs preserve the validated Phase 1 UX and
+  render indexable content with correct metadata.
 
-### Phase 3: managed corporate content — 5 to 8 working days
+### Phase 4: managed content, engagement, and search — 7 to 11 working days
 
 - Implement pages/sections, services, articles/tags, partners, clients, team,
   testimonials, gallery, site settings, and redirects.
-- Add corresponding administration and public routes.
+- Connect the corresponding Phase 1 public templates and add administration.
 - Implement safe structured page sections instead of accepting unrestricted
   page-builder code.
 - Add preview tokens that are short-lived, hashed at rest if persisted,
   tenant-bound, content-specific, and never expose general admin access.
-
-Exit criteria:
-
-- All launch routes are content-managed.
-- Archived or scheduled content observes publication windows.
-- Unsafe HTML and unapproved embeds are rejected or sanitized.
-- Changed published slugs retain working permanent redirects.
-
-### Phase 4: engagement and search — 4 to 6 working days
-
 - Implement general enquiry, quote request, enquiry history/status, newsletter
   subscribe/verify/unsubscribe, and notification delivery.
 - Add CAPTCHA, throttling, normalization, idempotency, retention, consent, and
@@ -569,6 +635,10 @@ Exit criteria:
 
 Exit criteria:
 
+- All launch routes are content-managed, and archived or scheduled content
+  observes publication windows.
+- Unsafe HTML and unapproved embeds are rejected or sanitized; changed
+  published slugs retain working permanent redirects.
 - Valid submissions persist once and notify configured recipients.
 - Duplicate, automated, oversized, and malformed submissions are handled
   without leaking account/subscriber existence.
@@ -594,7 +664,7 @@ Exit criteria:
   internal MinIO URLs, test subscribers, or draft content.
 - Operations and content owners sign off.
 
-Estimated baseline effort: 27 to 41 developer working days, excluding content
+Estimated baseline effort: 32 to 50 developer working days, excluding content
 writing, translation, brand design, external-provider procurement, and formal
 penetration testing. Parallel frontend/backend staffing may reduce elapsed
 calendar time but does not remove dependency gates.
@@ -636,7 +706,7 @@ calendar time but does not remove dependency gates.
   publish controls, and error states.
 - Contract tests for public and admin API clients.
 - Playwright journeys for browse/search/product enquiry, newsletter lifecycle,
-  admin author-review-publish, unpublish, and mobile navigation.
+  admin draft-publish, unpublish, and mobile navigation.
 - Accessibility automation plus manual keyboard and screen-reader checks.
 - Run builds and tests for `catalog-frontend-21`, `system-frontend-21`, and any
   changed shared libraries.
@@ -736,14 +806,24 @@ The baseline is complete only when:
 
 The first pull requests should be small and ordered as follows:
 
-1. Approve ADRs, content inventory, route map, and threat model.
-2. Add catalog datasource/Flyway configuration and a migration smoke test.
-3. Declare the Modulith boundary and privilege provider.
-4. Implement category/product persistence and publication service tests.
-5. Add exact anonymous route policy and administrative authorization tests.
-6. Scaffold the public SSR application and deployment service.
-7. Deliver category -> product list -> product detail as the first end-to-end
-   slice.
-8. Add administration for that slice, including preview and publication.
-9. Add media variants, cache invalidation, metadata, and sitemap coverage.
-10. Review the vertical slice before expanding into general CMS features.
+1. Approve ADRs, content inventory, route map, design direction, and view-model
+   contracts.
+2. Scaffold the public SSR application with typed fixture and API adapter
+   boundaries.
+3. Implement design tokens, responsive shell, accessible navigation, footer,
+   locale handling, and shared page states.
+4. Deliver fixture-backed category -> product list -> product detail, metadata,
+   and request-a-quote UX.
+5. Deliver the remaining fixture-backed corporate templates and run public UX,
+   responsive, accessibility, and SSR review.
+6. Finalize versioned API contracts from the validated frontend models.
+7. Declare the Modulith boundary, privilege provider, tenant resolver, and exact
+   public/admin security boundaries.
+8. Present the proposed catalog migration for explicit user approval; after
+   approval, add datasource/Flyway configuration and migration smoke tests.
+9. Implement category/product persistence, publication services, public APIs,
+   and system-frontend administration.
+10. Replace the catalog fixture adapter with the API adapter; add media variants,
+    caching, invalidation, tenant-isolation tests, metadata, and sitemap coverage.
+11. Review the integrated vertical slice before expanding into general CMS,
+    engagement, and search features.

@@ -26,12 +26,12 @@ services:
       SPRING_DATASOURCE_LOG_USERNAME: postgres
       SPRING_DATASOURCE_LOG_PASSWORD: 123456
       SPRING_DATASOURCE_LOG_DRIVER_CLASS_NAME: org.postgresql.Driver
-      SPRING_DATASOURCE_CATALOG_JDBC_URL: jdbc:postgresql://host.docker.internal:5433/catalog_db
-      SPRING_DATASOURCE_CATALOG_USERNAME: postgres
-      SPRING_DATASOURCE_CATALOG_PASSWORD: ${DB_CATALOG_PASSWORD:-123456}
-      SPRING_DATASOURCE_CATALOG_DRIVER_CLASS_NAME: org.postgresql.Driver
+      CATALOG_DB_JDBC_URL: ${CATALOG_DB_JDBC_URL:-jdbc:postgresql://host.docker.internal:5433/catalog_db}
+      CATALOG_DB_USERNAME: ${CATALOG_DB_USERNAME:-postgres}
+      DB_CATALOG_PASSWORD: ${DB_CATALOG_PASSWORD:-123456}
       CATALOG_MEDIA_NAMESPACE: ${CATALOG_MEDIA_NAMESPACE:-catalog}
       CATALOG_MEDIA_PUBLIC_PATH: ${CATALOG_MEDIA_PUBLIC_PATH:-/api/v1/public/media}
+      CATALOG_CLIENT_ALLOWED_ORIGINS: ${CATALOG_CLIENT_ALLOWED_ORIGINS:-http://localhost:4400,http://catalog.localhost:4400}
       AUTH_BOOTSTRAP_TENANT_ID: ${AUTH_BOOTSTRAP_TENANT_ID:-1}
       AUTH_BOOTSTRAP_SYSTEM_PASSWORD: ${AUTH_BOOTSTRAP_SYSTEM_PASSWORD:?Set AUTH_BOOTSTRAP_SYSTEM_PASSWORD before starting the backend}
       BACKUP_ENABLED: ${BACKUP_ENABLED:-false}
@@ -93,6 +93,13 @@ services:
       OTEL_TRACES_SAMPLER_PROBABILITY: ${OTEL_TRACES_SAMPLER_PROBABILITY:-0.10}
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-http://otel-collector:4318/v1/traces}
       MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: ${MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE:-health,info,prometheus,metrics}
+      MANAGEMENT_HEALTH_PROBES_ENABLED: ${MANAGEMENT_HEALTH_PROBES_ENABLED:-true}
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:9100/actuator/health/readiness"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
     networks:
       - app_network
     extra_hosts:
@@ -124,6 +131,12 @@ services:
       PORT: 4000
     expose:
       - "4000"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost:4000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - app_network
 
@@ -137,6 +150,12 @@ services:
     depends_on:
       - nexacore-backend
       - nexacore-catalog-renderer
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://localhost/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - app_network
 

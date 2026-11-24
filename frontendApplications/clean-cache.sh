@@ -19,6 +19,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APPS=(
     kyc-frontend-21
     system-frontend-21
+    catalog-frontend-21
     log-frontend-21
     sentinel-kyc-angular-cld
     layout-21

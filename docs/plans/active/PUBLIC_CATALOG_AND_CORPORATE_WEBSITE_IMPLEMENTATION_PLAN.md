@@ -570,7 +570,10 @@ edge proxy, Compose services, Modulith checks, API metadata checks, and focused
 security tests are implemented. The `catalog_db` V1 schema was explicitly
 approved and is implemented with datasource, Flyway, JPA, transaction manager,
 health, environment, Compose, and backup wiring. PostgreSQL rollback validation
-passes; automated clean/repeat migration coverage is included.
+passes; automated clean/repeat migration coverage is included. The complete
+published `CatalogSiteView` contract is served from tenant-owned V1 data, and
+the browser now uses an HTTP-backed content source for the site shell while
+unimplemented Phase 3 reads remain explicitly fixture-backed.
 
 - Finalize API contracts from the validated frontend view models and document
   public versus administrative DTO boundaries.

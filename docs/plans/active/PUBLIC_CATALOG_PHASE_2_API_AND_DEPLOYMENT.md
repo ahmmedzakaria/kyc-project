@@ -7,15 +7,27 @@ entities, numeric tenant identifiers, publication audit fields, draft content,
 or administrative authorization data. Administrative endpoints live below
 `/api/v1/catalog/admin/**`, return separate DTOs, and require catalog privileges.
 
-The foundation endpoint is `GET /api/v1/public/site`. Its current response is:
+The foundation endpoint is `GET /api/v1/public/site?lang=en`. It now returns the
+complete `CatalogSiteView` contract: site identity, placeholder-safe logo,
+locales, hierarchical navigation, hierarchical category navigation, contact,
+social links, and default SEO. All data-backed fields are selected only from
+the resolved tenant's published rows; English is the required fallback.
+
+An abbreviated response is:
 
 ```json
 {
   "siteKey": "tenant-code",
   "hostname": "catalog.example.com",
+  "name": "Example Catalog",
+  "logo": { "id": "site-logo", "kind": "IMAGE", "url": "/assets/catalog/placeholder.svg", "alternativeText": "Example Catalog" },
   "defaultLocale": "en",
   "supportedLocales": ["en", "bn"],
-  "apiVersion": "v1"
+  "navigation": [],
+  "categoryNavigation": [],
+  "contact": { "email": "sales@example.com", "phone": "+880...", "address": "Dhaka" },
+  "socialLinks": [],
+  "defaultSeo": { "title": "Example Catalog", "description": "...", "canonicalPath": "/" }
 }
 ```
 
@@ -44,9 +56,11 @@ signed/public object policy are implemented with the Phase 3 media aggregate.
 the backend, and sends all other requests to the SSR renderer. Both proxy paths
 preserve the hostname required for multi-site resolution.
 
-The fixture content source remains the default until Phase 3 supplies complete
-catalog read endpoints. This keeps deployment and SSR independently testable
-without pretending the persistence-backed vertical slice exists.
+The browser uses `HttpCatalogContentSource`; its site read is authoritative from
+the public backend API. Other content-source methods explicitly delegate to the
+fixture source until their Phase 3 endpoints exist. Server prerender uses the
+fixture provider for deterministic backend-independent builds and disables HTTP
+transfer caching, so the hydrated browser still loads the authoritative site.
 
 ## Database bootstrap and operations
 
@@ -61,6 +75,19 @@ The backend then applies `db/migration/catalog` through the dedicated
 `CATALOG_DB_USERNAME`, and `DB_CATALOG_PASSWORD`. Docker Compose supplies local
 defaults for these settings. The datasource is included in Actuator health and
 the encrypted platform backup set under logical target `catalog`.
+
+Operational probes are available without tenant-host resolution at
+`/actuator/health/liveness` and `/actuator/health/readiness`; other Actuator
+endpoints remain authenticated. The readiness result includes Spring Boot's
+composite database health contributor, including `catalogDataSource`. Compose
+also checks the catalog SSR renderer at `/healthz` and the Nginx edge at
+`/healthz`.
+
+For a backend started directly on the host, the default JDBC URL is
+`jdbc:postgresql://localhost:5433/catalog_db`. For Compose, set
+`CATALOG_DB_JDBC_URL=jdbc:postgresql://host.docker.internal:5433/catalog_db`.
+Set `DB_CATALOG_PASSWORD` through the local environment or secret manager; do
+not put production credentials in Compose or application properties.
 
 Flyway owns the schema. Do not enable Hibernate schema creation or edit V1 after
 deployment; subsequent changes require the next catalog migration version.

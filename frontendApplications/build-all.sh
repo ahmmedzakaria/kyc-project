@@ -2,9 +2,11 @@
 # Builds every active frontend project in this workspace, in dependency order:
 #   1. frontend-libs-21/platform  (shared package, no internal deps)
 #   2. frontend-libs-21/shared    (depends on platform)
-#   3. kyc-frontend-21            (consumes @nexacore/platform + @nexacore/shared)
-#   4. system-frontend-21         (consumes @nexacore/platform + @nexacore/shared)
-#   5. sentinel-kyc-angular-cld   (standalone app, no dependency on frontend-libs-21)
+#   3. frontend-libs-21/catalog   (catalog package consumed by the public site)
+#   4. kyc-frontend-21            (consumes @nexacore/platform + @nexacore/shared)
+#   5. system-frontend-21         (consumes @nexacore/platform + @nexacore/shared)
+#   6. catalog-frontend-21        (consumes @nexacore/catalog)
+#   7. sentinel-kyc-angular-cld   (standalone app, no dependency on frontend-libs-21)
 #
 # layout-21 is intentionally skipped — it shares its package name ("sentinel-kyc")
 # and scripts with sentinel-kyc-angular-cld, and looks like a superseded snapshot
@@ -51,6 +53,10 @@ build_project "@nexacore/shared" \
     "$SCRIPT_DIR/frontend-libs-21" \
     "npx ng build shared"
 
+build_project "@nexacore/catalog" \
+    "$SCRIPT_DIR/frontend-libs-21" \
+    "npx ng build catalog"
+
 # Consuming apps' .angular/cache and node_modules/.vite can keep serving a
 # pre-bundled dependency graph that predates the platform/shared rebuild
 # above — clear both before building any app against the fresh dist/ output.
@@ -64,6 +70,10 @@ build_project "kyc-frontend-21" \
 
 build_project "system-frontend-21" \
     "$SCRIPT_DIR/system-frontend-21" \
+    "npm run build"
+
+build_project "catalog-frontend-21" \
+    "$SCRIPT_DIR/catalog-frontend-21" \
     "npm run build"
 
 #build_project "sentinel-kyc-angular-cld" \

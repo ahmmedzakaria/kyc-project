@@ -2,12 +2,38 @@
 
 ## Document control
 
-- Status: proposed
+- Status: in progress
 - Created: 2026-11-25
+- Last updated: 2026-11-26
 - Scope: `backend`, `catalog_db`, `system_db`, `catalog-frontend-21`, `frontend-libs-21`, and `system-frontend-21`
 - Parent plan: `PUBLIC_CATALOG_AND_CORPORATE_WEBSITE_IMPLEMENTATION_PLAN.md`
 - Related backend design: `systemmodule/layout/LAYOUT_SUBMODULE_BUSINESS_AND_IMPLEMENTATION_PLAN.md`
-- Migration status: no migration described by this plan is approved or implemented yet
+- Migration status: Catalog V3 is implemented; the System layout configuration
+  exists through administration, but an additive reproducible System bootstrap
+  migration is still pending approval
+
+### Implementation status
+
+| Area | Status | Evidence / remaining work |
+| --- | --- | --- |
+| Trusted hostname, CATALOG client, and Origin validation | **Done** | Public Catalog requests resolve tenant and validate the exact client/origin contract. |
+| Catalog datasource, schema, Flyway, health, and Compose wiring | **Done** | `catalog_db` is configured; Catalog V1-V3 are applied. |
+| System layout profile | **Partially done** | Active profile ID `2`, code `WEB_CATALOG_LAYOUT`, type `PUBLIC`; theme, sizes, and fonts exist. Public-safe flag alignment and reproducible bootstrap remain pending. |
+| Tenant/client layout assignment | **Done** | Assignment ID `11` is active and default for tenant `7`, client `CATALOG` (ID `11`). |
+| CATALOG tenant mapping | **Done** | Active `sys_acc_client_application_tenants` mapping exists for tenant `7`. |
+| Layout administration UI | **Done** | Authorized tenant selector, client-specific reload, inactive records, and profile/assignment statuses are implemented. |
+| Public layout DTO and Catalog gateway | **Pending** | `PublicSiteResponse` has no layout field and `CatalogContextService` does not call the System layout boundary. |
+| Published Catalog navigation | **Pending** | Tenant `7` currently has zero published navigation items and zero translations. |
+| Catalog shell, theme tokens, and region switches | **Pending** | The Catalog root still uses compiled shell markup and fixed CSS tokens. |
+| API-driven header/footer navigation | **Pending** | Header and footer links remain hard-coded. |
+| Centralized breadcrumbs | **Pending** | Breadcrumb markup remains page-owned. |
+| SSR/hydration verification for layout | **Pending** | Cannot be completed before backend composition and shell integration. |
+| Cache invalidation for public layout | **Pending** | No combined Catalog/layout cache contract is implemented. |
+| Backup and restore inclusion | **Pending** | `backup-all-databases.sh` does not yet include `catalog_db` by default. |
+
+Database status can be rechecked with
+`backend/db_script/query_system_db_layout_details.sql` using tenant `7` and
+client code `CATALOG`.
 
 ## 1. Objective
 
@@ -183,10 +209,10 @@ Target response shape:
   "socialLinks": [],
   "defaultSeo": {},
   "layout": {
-    "activeProfileCode": "CATALOG_PUBLIC",
+    "activeProfileCode": "WEB_CATALOG_LAYOUT",
     "availableProfiles": [
       {
-        "code": "CATALOG_PUBLIC",
+        "code": "WEB_CATALOG_LAYOUT",
         "layoutType": "PUBLIC",
         "topbarEnabled": true,
         "sidebarEnabled": false,
@@ -277,51 +303,60 @@ tenant resolution.
 
 ## 6. System database work
 
-The following work requires a new additive `system_db` Flyway migration. It
-must be reviewed and explicitly approved before implementation.
+The live configuration was created through System administration. A new
+additive `system_db` Flyway migration or equivalent idempotent bootstrap is
+still required for repeatable environments and must be reviewed and explicitly
+approved before implementation.
 
-### 6.1 Create `CATALOG_PUBLIC` profile
+### 6.1 Create the public Catalog profile — **Done through administration; migration pending**
 
 Create an active profile with the intended defaults:
 
 | Field | Value |
 | --- | --- |
-| `profile_code` | `CATALOG_PUBLIC` |
+| `profile_code` | `WEB_CATALOG_LAYOUT` |
 | `layout_type` | `PUBLIC` |
-| `navigation_mode` | horizontal/public-compatible value |
+| `navigation_mode` | `MODULE_LIST` |
 | `theme_mode` | `LIGHT` initially |
 | `density` | `COMFORTABLE` |
 | `topbar_enabled` | `true` |
 | `sidebar_enabled` | `false` |
 | `sidebar_collapsed` | `false` |
 | `footer_enabled` | `true` |
-| `breadcrumb_enabled` | `true` |
-| `command_bar_enabled` | `false` |
+| `breadcrumb_enabled` | `false` currently; change to `true` before breadcrumb integration |
+| `command_bar_enabled` | `true` currently; change to `false` for the public-safe contract |
 | `rtl_enabled` | `false` initially |
 | `active` | `true` |
 
-Seed associated theme, primary colors, sizes, fonts, and optional branding
-through the existing audited layout tables. Every inserted row must populate
-`created_by`, `updated_by`, `created_at`, and `updated_at`.
+The active profile, theme, primary colors, sizes, and fonts exist in
+`system_db`. Optional profile branding is absent and is not required while the
+published Catalog site owns identity. A reviewed additive bootstrap migration
+is still pending so clean environments can reproduce the configuration. Every
+future inserted row must populate `created_by`, `updated_by`, `created_at`, and
+`updated_at`.
 
-### 6.2 Assign the profile to tenant and client
+### 6.2 Assign the profile to tenant and client — **Done**
 
 Create an active default `sys_client_layout_profiles` assignment for:
 
 ```text
 tenant_id = 7
 client_code = CATALOG
-profile_code = CATALOG_PUBLIC
-assignment_scope = DEFAULT
-device_target = ALL
+profile_code = WEB_CATALOG_LAYOUT
+assignment_scope = CLIENT
+device_target = ANY
 default_profile = true
-selectable = false
+selectable = true
 active = true
 ```
 
-Use joins to resolve IDs. Do not hardcode client or profile primary keys.
+The deployed assignment is ID `11`, active, default, and selectable. Whether a
+public Catalog should expose profile selection remains pending; the recommended
+production value is `selectable = false`. Reproducible migrations or bootstrap
+code must use joins to resolve IDs and must not hardcode client or profile
+primary keys.
 
-### 6.3 Add the CATALOG tenant assignment
+### 6.3 Add the CATALOG tenant assignment — **Done**
 
 Ensure `CATALOG` has an active tenant assignment in
 `sys_acc_client_application_tenants` for tenant 7. This keeps layout assignment
@@ -331,7 +366,7 @@ Long term, Catalog client creation and tenant/profile assignment should use a
 dedicated idempotent bootstrap service or reviewed migrations rather than
 remaining coupled to the general authentication `DataSeeder`.
 
-## 7. Catalog database work
+## 7. Catalog database work — **Pending**
 
 The current published site migration creates the site and English site
 translation but no navigation rows. A separate additive `catalog_db` migration
@@ -388,7 +423,7 @@ Do not change feature codes already deployed. Add new stable codes and update
 backend `@PrivilegeApi`, `@PreAuthorize`, route policies, UI policies, and menu
 linkage together.
 
-## 9. Frontend library changes
+## 9. Frontend library changes — **Pending**
 
 ### 9.1 Extend Catalog contracts
 
@@ -440,7 +475,7 @@ Create an explicit mapping instead of assuming KYC CSS variable names:
 
 Validate and constrain remote font URLs before injecting a stylesheet link.
 
-## 10. Catalog application changes
+## 10. Catalog application changes — **Pending**
 
 ### 10.1 Split the public shell
 
@@ -489,7 +524,7 @@ Layout and navigation must be available during SSR. Avoid a browser-only shell
 that changes structure after hydration. Verify canonical URL, language, title,
 structured data, header navigation, and breadcrumbs in generated HTML.
 
-## 11. System frontend changes
+## 11. System frontend changes — **Partially done**
 
 Use existing layout/profile and client assignment administration where
 possible. Ensure administrators can find and inspect:
@@ -497,16 +532,21 @@ possible. Ensure administrators can find and inspect:
 ```text
 client: CATALOG
 tenant: 7
-profile: CATALOG_PUBLIC
+profile: WEB_CATALOG_LAYOUT
 layout type: PUBLIC
 ```
+
+The layout assignment administration portion is done. It now supports an
+explicit authorized tenant selector, client-change reload, active/inactive
+assignment visibility, and separate profile and assignment status indicators.
+Catalog content/navigation administration remains pending.
 
 Add Catalog navigation/content administration under the menu registered by
 `CatalogPrivilegeProvider`. Do not edit Catalog public navigation using the
 System application navigation-tree editor because the two trees have different
 ownership and authorization semantics.
 
-## 12. Backup and recovery changes
+## 12. Backup and recovery changes — **Pending**
 
 `DATABASE_BACKUP_AND_RECOVERY_IMPLEMENTATION_PLAN.md` currently lists Auth,
 System, KYC, GIS, and Log in its initial scope. Add:
@@ -529,7 +569,7 @@ assigned public layout without exposing secrets.
 
 ## 13. Implementation phases
 
-### Phase 1: contracts and backend composition
+### Phase 1: contracts and backend composition — **Pending**
 
 1. Define reduced public layout DTOs and gateway.
 2. Extend `PublicSiteResponse`.
@@ -539,17 +579,21 @@ assigned public layout without exposing secrets.
 Exit criteria: the public site endpoint returns a tenant-specific, anonymous-
 safe layout block with no privilege navigation.
 
-### Phase 2: approved system configuration migration
+### Phase 2: System configuration — **Partially done**
 
-1. Create `CATALOG_PUBLIC` and its audited supporting configuration.
-2. Assign `CATALOG_PUBLIC` to tenant 7 and CATALOG.
+1. Create `WEB_CATALOG_LAYOUT` and its audited supporting configuration.
+   **Partially done:** records exist; public-safe flags and reproducible
+   bootstrap remain pending.
+2. Assign `WEB_CATALOG_LAYOUT` to tenant 7 and CATALOG. **Done**
 3. Add/verify the active CATALOG tenant assignment.
-4. Validate migration on clean and upgraded databases.
+   **Done**
+4. Validate a reproducible migration on clean and upgraded databases.
+   **Pending**
 
-Exit criteria: tenant 7 resolves `CATALOG_PUBLIC`; another tenant cannot use
+Exit criteria: tenant 7 resolves `WEB_CATALOG_LAYOUT`; another tenant cannot use
 tenant 7's assignment.
 
-### Phase 3: approved Catalog navigation migration
+### Phase 3: approved Catalog navigation migration — **Pending**
 
 1. Seed published tenant 7 navigation and translations.
 2. Verify tenant-qualified relationships and audit fields.
@@ -557,7 +601,7 @@ tenant 7's assignment.
 
 Exit criteria: navigation is data-backed and contains no frontend-only link.
 
-### Phase 4: frontend shell integration
+### Phase 4: frontend shell integration — **Pending**
 
 1. Add Catalog public layout models and service.
 2. Map theme/font/size values to Catalog tokens.
@@ -568,18 +612,19 @@ Exit criteria: navigation is data-backed and contains no frontend-only link.
 Exit criteria: changing the assigned layout/theme/navigation changes the
 server-rendered tenant site without rebuilding the frontend.
 
-### Phase 5: administration and operations
+### Phase 5: administration and operations — **Partially done**
 
-1. Confirm layout assignment management for CATALOG.
-2. Implement privilege-controlled Catalog navigation administration.
-3. Add cache invalidation and authorization audit evidence.
-4. Add `catalog_db` to backup documentation and restore verification.
+1. Confirm layout assignment management for CATALOG. **Done**
+2. Implement privilege-controlled Catalog navigation administration. **Pending**
+3. Add cache invalidation and authorization audit evidence. **Pending**
+4. Add `catalog_db` to backup documentation, scripts, and restore verification.
+   **Pending**
 
 ## 14. Verification plan
 
 ### Backend
 
-- `CATALOG` and tenant 7 resolve `CATALOG_PUBLIC`.
+- `CATALOG` and tenant 7 resolve `WEB_CATALOG_LAYOUT`.
 - Public response contains only anonymous-safe layout fields.
 - Unknown, inactive, ambiguous, or unverified hosts fail closed.
 - Missing, wrong, or inactive CATALOG client fails closed.

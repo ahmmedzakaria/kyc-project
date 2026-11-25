@@ -19,6 +19,27 @@ Approved by the user on 2026-11-24 and implemented as
 - MVP publication state is `DRAFT` or `PUBLISHED`, with `published_at` and
   `published_by`; only role-controlled application transitions may change it.
 
+## Mandatory actor-reference convention
+
+All action-performer columns must store numeric actor IDs. This applies to
+`created_by`, `updated_by`, `published_by`, and any later `approved_by`,
+`deleted_by`, `cancelled_by`, or equivalent field. Usernames, display names,
+email addresses, migration labels, and other strings must never be stored in
+these columns. Human-readable actor data is resolved from the Auth-owned source
+when a response or report needs it.
+
+The authenticated user ID is used for user actions. Seed data, migrations,
+scheduled jobs, and integrations use the reserved numeric system actor ID.
+These references remain application-enforced because `auth_db` and
+`catalog_db` are separate databases.
+
+V1 originally used `VARCHAR(255)` for actor columns, and V2 seeded
+`migration:v2`. V3 converts all existing actor-reference columns to `BIGINT`,
+maps that trusted marker to system actor ID `0`, and fails on unresolved
+descriptive values. V1 and V2 remain unchanged to preserve their deployed
+Flyway checksums. New tables and migrations must define actor-reference columns
+as `BIGINT` from the start.
+
 ## Proposed V1 tables
 
 Foundation and navigation: `catalog_sites`, `catalog_site_translations`,

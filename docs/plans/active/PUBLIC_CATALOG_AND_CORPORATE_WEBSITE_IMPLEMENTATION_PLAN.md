@@ -141,6 +141,28 @@ fallback, publication, search, sitemap links, and later addition of a language
 without a schema redesign. English content is required for launch; Bengali
 content may be completed incrementally.
 
+### ADR-CATALOG-006: actor references use IDs
+
+Decision: every column that records who performed an action must store the
+actor's numeric ID. This includes `created_by`, `updated_by`, `published_by`,
+`approved_by`, `deleted_by`, `cancelled_by`, and equivalent lifecycle fields.
+Do not persist usernames, display names, email addresses, labels, migration
+names, or other descriptive strings in actor-reference columns.
+
+Use the authenticated user ID for user actions and the reserved numeric system
+actor ID for migrations, seeders, scheduled jobs, and automated integrations.
+Because Auth and Catalog use separate databases, these are application-level
+references and do not have cross-database foreign keys. Resolve actor display
+information through an Auth-owned API or projection when reading data; never
+copy a display value into an actor-reference column. An action field may be
+null only when that lifecycle action has not occurred.
+
+Catalog V1 originally defined these columns as `VARCHAR(255)`, and V2 stored
+`migration:v2`. V3 converts every actor-reference column to `BIGINT`, maps that
+exact trusted seed marker to reserved system actor ID `0`, and rejects
+unresolved descriptive values rather than guessing an identity. V1 and V2
+remain unchanged to preserve their deployed Flyway checksums.
+
 ## 5. Architecture
 
 ### 5.1 Backend boundary
@@ -212,7 +234,8 @@ next sitemap build.
 ## 6. Data model
 
 All persistent tables use the `catalog_` prefix and include `created_at`,
-`updated_at`, `created_by`, and `updated_by`. All owned records contain a
+`updated_at`, `created_by`, and `updated_by`. Actor-reference fields store
+numeric actor IDs according to ADR-CATALOG-006. All owned records contain a
 non-null `tenant_id`, and all unique constraints include that tenant key where
 appropriate.
 

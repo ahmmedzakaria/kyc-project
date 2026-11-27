@@ -8,6 +8,7 @@
 - Scope: `backend`, `catalog_db`, `system_db`, `catalog-frontend-21`, `frontend-libs-21`, and `system-frontend-21`
 - Parent plan: `PUBLIC_CATALOG_AND_CORPORATE_WEBSITE_IMPLEMENTATION_PLAN.md`
 - Related backend design: `systemmodule/layout/LAYOUT_SUBMODULE_BUSINESS_AND_IMPLEMENTATION_PLAN.md`
+- Public navigation plan: `SYSTEM_GENERAL_PUBLIC_NAVIGATION_IMPLEMENTATION_PLAN.md`
 - Migration status: Catalog V3 and System V83 are implemented. System V83 was
   validated against the upgraded local database in a rollback transaction.
 
@@ -22,7 +23,7 @@
 | CATALOG tenant mapping | **Done** | Active `sys_acc_client_application_tenants` mapping exists for tenant `7`. |
 | Layout administration UI | **Done** | Authorized tenant selector, client-specific reload, inactive records, and profile/assignment statuses are implemented. |
 | Public layout DTO and Catalog gateway | **Done** | A reduced gateway contract is mapped by System and composed into `PublicSiteResponse`; missing or unsafe assignments use an explicit public-safe fallback. |
-| Published Catalog navigation | **Pending** | Tenant `7` currently has zero published navigation items and zero translations. |
+| General public navigation | **Planned** | Public navigation ownership moves to reusable `system_db` tables and a public navigation gateway; see `SYSTEM_GENERAL_PUBLIC_NAVIGATION_IMPLEMENTATION_PLAN.md`. |
 | Catalog shell, theme tokens, and region switches | **Pending** | The Catalog root still uses compiled shell markup and fixed CSS tokens. |
 | API-driven header/footer navigation | **Pending** | Header and footer links remain hard-coded. |
 | Centralized breadcrumbs | **Pending** | Breadcrumb markup remains page-owned. |
@@ -33,6 +34,12 @@
 Database status can be rechecked with
 `backend/db_script/query_system_db_layout_details.sql` using tenant `7` and
 client code `CATALOG`.
+
+> **Architecture update (2026-11-27):**
+> `SYSTEM_GENERAL_PUBLIC_NAVIGATION_IMPLEMENTATION_PLAN.md` supersedes this
+> document wherever it assigns public header/footer navigation and translations
+> to `catalog_db`. Catalog business content remains in `catalog_db`; reusable
+> public navigation will be owned and published by `system_db`.
 
 ## 1. Objective
 
@@ -133,7 +140,7 @@ Ownership is:
 | Theme, fonts, sizes, density, RTL | `system_db` layout tables |
 | Tenant presentation overrides | `sys_client_layout_profiles` |
 | Site name, contact, locales, SEO | `catalog_db` |
-| Public header/footer navigation | `catalog_db` navigation tables |
+| Public header/footer navigation and translations | General public navigation tables in `system_db` |
 | Product-category navigation | `catalog_db` category tables |
 | KYC operational navigation | privilege/layout tables in `system_db` |
 
@@ -151,7 +158,8 @@ requirements for an anonymous public Catalog.
 The public Catalog layout response must not include authenticated application
 features, privilege codes, route policies, UI policies, users, roles, or scope
 assignments. `layout.navTree` remains empty or is omitted. Public navigation is
-returned through the existing Catalog `navigation` field.
+resolved through the separate System public-navigation gateway and initially
+mapped to the existing Catalog `navigation` field for response compatibility.
 
 ### ADR-CATALOG-LAYOUT-005: site identity wins over generic branding
 
@@ -189,8 +197,8 @@ V1 and V2 remain unchanged to preserve their deployed Flyway checksums.
 Browser / SSR request
   -> trusted Host resolves active tenant
   -> CATALOG client is validated
-  -> catalog_db returns published site and public navigation
-  -> system_db returns tenant + CATALOG public layout profile
+  -> catalog_db returns the published site and Catalog business content
+  -> system_db returns the tenant/client public layout and published navigation
   -> backend assembles one public presentation DTO
   -> Catalog SSR shell renders configuration and content
 ```
@@ -502,11 +510,13 @@ CatalogFooterComponent
 The shell uses layout signals to render configured regions. It does not render
 an authenticated rail or status bar.
 
-### 10.2 Render backend Catalog navigation
+### 10.2 Render System-owned public navigation
 
-Replace hard-coded header and footer links with `site.navigation`. Support
-published child items as accessible dropdowns. Route links must pass through
-the existing locale-aware path helper.
+Replace hard-coded header and footer links with the published navigation
+regions resolved by the System public-navigation gateway. During compatibility
+rollout, the PRIMARY region is mapped to `site.navigation`. Support published
+child items as accessible dropdowns. Route links must pass through the existing
+locale-aware path helper.
 
 Define empty-navigation behavior explicitly. Recommended behavior is a visible
 brand/home link and no fabricated content links, with an operational warning in
@@ -548,12 +558,12 @@ layout type: PUBLIC
 The layout assignment administration portion is done. It now supports an
 explicit authorized tenant selector, client-change reload, active/inactive
 assignment visibility, and separate profile and assignment status indicators.
-Catalog content/navigation administration remains pending.
+General public-navigation administration remains pending.
 
-Add Catalog navigation/content administration under the menu registered by
-`CatalogPrivilegeProvider`. Do not edit Catalog public navigation using the
-System application navigation-tree editor because the two trees have different
-ownership and authorization semantics.
+Add the general `Public Navigation Administration` feature described in
+`SYSTEM_GENERAL_PUBLIC_NAVIGATION_IMPLEMENTATION_PLAN.md`. Do not edit public
+navigation using the authenticated application navigation-tree editor because
+the two trees have different ownership and authorization semantics.
 
 ## 12. Backup and recovery changes — **Pending**
 
@@ -563,13 +573,14 @@ System, KYC, GIS, and Log in its initial scope. Add:
 | Logical module | Database |
 | --- | --- |
 | Catalog content and public site configuration | `catalog_db` |
+| General public navigation and translations | `system_db` |
 
 A usable Catalog recovery requires both:
 
-- `system_db` for tenants, verified domains, the CATALOG client, origins, and
-  layout assignments/profiles;
-- `catalog_db` for the published site, translations, navigation, products, and
-  content.
+- `system_db` for tenants, verified domains, the CATALOG client, origins,
+  layout assignments/profiles, and published public navigation;
+- `catalog_db` for the published site, site translations, products, categories,
+  pages, media, and other Catalog content.
 
 The backup manifest and restore verification must check both databases and
 record their independent snapshot timestamps. Restore verification must prove
@@ -604,11 +615,13 @@ safe layout block with no privilege navigation.
 Exit criteria: tenant 7 resolves `WEB_CATALOG_LAYOUT`; another tenant cannot use
 tenant 7's assignment.
 
-### Phase 3: approved Catalog navigation migration — **Pending**
+### Phase 3: general System public navigation — **Pending**
 
-1. Seed published tenant 7 navigation and translations.
-2. Verify tenant-qualified relationships and audit fields.
-3. Confirm the public endpoint returns the hierarchy.
+1. Implement the approved System public-navigation schema and gateway.
+2. Import and publish tenant 7 Catalog navigation and translations.
+3. Verify tenant-qualified relationships, versions, audit actors, and locale
+   fallback.
+4. Confirm the public endpoint returns the System-owned hierarchy.
 
 Exit criteria: navigation is data-backed and contains no frontend-only link.
 
@@ -627,7 +640,8 @@ server-rendered tenant site without rebuilding the frontend.
 ### Phase 5: administration and operations — **Partially done**
 
 1. Confirm layout assignment management for CATALOG. **Done**
-2. Implement privilege-controlled Catalog navigation administration. **Pending**
+2. Implement privilege-controlled general public-navigation administration.
+   **Pending**
 3. Add cache invalidation and authorization audit evidence. **Pending**
 4. Add `catalog_db` to backup documentation, scripts, and restore verification.
    **Pending**
@@ -673,8 +687,8 @@ The integration is complete when:
    public layout through one endpoint.
 2. Catalog appearance and region visibility can change through backend layout
    administration without a frontend rebuild.
-3. Header/footer navigation is sourced from published tenant-owned Catalog
-   records rather than hard-coded links.
+3. Header/footer navigation is sourced from published tenant/client-owned
+   System public-navigation records rather than hard-coded links.
 4. Breadcrumbs are centralized, localized, linked, SSR-rendered, and driven by
    route/content context.
 5. No authenticated KYC navigation, privilege metadata, user state, or tenant

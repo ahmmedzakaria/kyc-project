@@ -2,7 +2,7 @@
 
 ## Document control
 
-- Status: proposed; migration approval pending
+- Status: in progress; foundation implemented, backend and application cutover pending
 - Created: 2026-11-27
 - Last updated: 2026-11-27
 - Scope: `backend`, `system_db`, `system-frontend-21`, shared frontend
@@ -16,8 +16,53 @@
 - Deferred: navigation versions, drafts, publication pointers, rollback,
   translations, and public/private audience conversion are excluded from this
   phase and moved to the future central upgrade plan
-- Migration rule: this document proposes database changes but does not
-  authorize creating a migration. The migration requires explicit approval.
+- Migration status: System migration
+  `V84__add_public_navigation_registry.sql` now exists in the current codebase.
+  Any further migration or change to the deployed schema still requires
+  explicit approval.
+
+## Current implementation status
+
+Reviewed against the codebase on 2026-11-27.
+
+### Done
+
+- Added System migration `V84__add_public_navigation_registry.sql` with the
+  three planned tables, hierarchy and tenant ownership constraints,
+  destination checks, audit columns, optimistic-lock columns, and resolution
+  indexes.
+- Added JPA entities for public navigation groups, items, and client item
+  assignments with explicit System table mappings and audit fields.
+- Added the presentation-neutral `PublicNavigationModuleGateway` boundary.
+- Added `PublicNavigationContextDto` with regions, groups, recursive items,
+  destinations, targets, icons, and presentation labels.
+
+### Partially done
+
+- The backend data model and external gateway contract exist, but there is no
+  repository, service implementation, validation layer, or gateway adapter.
+- The gateway currently accepts `Set<String>` surfaces; the planned
+  `PublicNavigationSurface` enum and typed contract are not yet implemented.
+- Optimistic-lock fields exist on groups and items, but stale-write behavior
+  is not implemented or tested through administration services.
+- The Catalog frontend has an existing public navigation shell and an end-to-
+  end navigation test, but it still renders navigation supplied by the
+  Catalog-owned response rather than System public navigation regions.
+
+### Pending
+
+- Implement tenant-qualified repositories, tree resolution, assignment
+  replacement, validation, integrity checks, preview, and mutation services.
+- Implement administration controllers, action-specific privileges, API
+  registration, cache eviction, health evidence, and targeted backend tests.
+- Implement the System administration UI and its tenant/client scope reset,
+  hierarchy editing, assignment, preview, integrity, and conflict workflows.
+- Inventory and reconcile existing Catalog navigation and translations, then
+  perform the deterministic import and shadow comparison.
+- Compose System navigation in `CatalogContextService`, add navigation regions
+  to the public response, and switch the Catalog shell to those regions.
+- Verify clean and upgraded migration paths, tenant isolation, failure and
+  empty-state behavior, cache eviction, SSR, backup, and restore.
 
 ## 1. Objective
 
@@ -484,17 +529,23 @@ navigation and layout recovery require `system_db`.
 
 ## 14. Delivery phases
 
-### Phase 1: model and migration review — Pending
+### Phase 1: model and migration — Partially done
 
-- approve the three-table direct hierarchy and assignment model;
-- approve the single-language limitation;
-- approve the next additive System migration before creating it;
-- approve the Catalog import and cutover procedure.
+- **Done:** created the three-table direct hierarchy and assignment migration.
+- **Done:** added same-tenant group/item and same-group parent constraints,
+  destination checks, audit columns, optimistic-lock columns, and resolution
+  indexes.
+- **Pending:** verify the migration on both clean and upgraded System databases.
+- **Pending:** record acceptance of the single-language limitation and approve
+  the Catalog import and cutover procedure before that data work begins.
 
-### Phase 2: System backend — Pending
+### Phase 2: System backend — Partially done
 
-- implement migration, entities, repositories, validation, gateway,
-  administration APIs, privileges, caching, health evidence, and tests.
+- **Done:** added group, item, and client-assignment entities.
+- **Done:** added the public gateway interface and presentation DTO.
+- **Pending:** implement repositories, validation, effective-tree resolution,
+  gateway implementation, administration APIs, privileges, caching, health
+  evidence, and tests.
 
 ### Phase 3: System administration UI — Pending
 
@@ -512,6 +563,8 @@ navigation and layout recovery require `system_db`.
 - compose System navigation in `CatalogContextService`;
 - render System regions in the Catalog shell;
 - verify SSR, tenant isolation, cache eviction, and failure behavior.
+- remove the Catalog-owned navigation read only after shadow comparison and
+  cutover acceptance; it is still the active source today.
 
 ### Phase 6: future central upgrade — Deferred
 
@@ -539,4 +592,3 @@ navigation and layout recovery require `system_db`.
   is made by this phase.
 - Migration, import, backup, restore, and cutover procedures are reproducible
   and auditable.
-

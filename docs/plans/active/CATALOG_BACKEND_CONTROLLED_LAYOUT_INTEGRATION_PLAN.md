@@ -37,9 +37,10 @@ client code `CATALOG`.
 
 > **Architecture update (2026-11-27):**
 > `SYSTEM_GENERAL_PUBLIC_NAVIGATION_IMPLEMENTATION_PLAN.md` supersedes this
-> document wherever it assigns public header/footer navigation and translations
-> to `catalog_db`. Catalog business content remains in `catalog_db`; reusable
-> public navigation will be owned and published by `system_db`.
+> document wherever it assigns public header/footer navigation to `catalog_db`.
+> Catalog business content remains in `catalog_db`; reusable public navigation
+> will be owned by `system_db`. Central translations and publication are
+> deferred to the linked future upgrade plan.
 
 ## 1. Objective
 
@@ -140,7 +141,8 @@ Ownership is:
 | Theme, fonts, sizes, density, RTL | `system_db` layout tables |
 | Tenant presentation overrides | `sys_client_layout_profiles` |
 | Site name, contact, locales, SEO | `catalog_db` |
-| Public header/footer navigation and translations | General public navigation tables in `system_db` |
+| Public header/footer navigation | General public navigation tables in `system_db` |
+| Central navigation translations | Deferred central navigation upgrade |
 | Product-category navigation | `catalog_db` category tables |
 | KYC operational navigation | privilege/layout tables in `system_db` |
 
@@ -573,12 +575,12 @@ System, KYC, GIS, and Log in its initial scope. Add:
 | Logical module | Database |
 | --- | --- |
 | Catalog content and public site configuration | `catalog_db` |
-| General public navigation and translations | `system_db` |
+| General public navigation | `system_db` |
 
 A usable Catalog recovery requires both:
 
 - `system_db` for tenants, verified domains, the CATALOG client, origins,
-  layout assignments/profiles, and published public navigation;
+  layout assignments/profiles, and active public navigation;
 - `catalog_db` for the published site, site translations, products, categories,
   pages, media, and other Catalog content.
 
@@ -618,9 +620,9 @@ tenant 7's assignment.
 ### Phase 3: general System public navigation — **Pending**
 
 1. Implement the approved System public-navigation schema and gateway.
-2. Import and publish tenant 7 Catalog navigation and translations.
-3. Verify tenant-qualified relationships, versions, audit actors, and locale
-   fallback.
+2. Import tenant 7 Catalog navigation using the approved initial source locale.
+3. Verify tenant-qualified hierarchy, client assignments, active state, audit
+   actors, and deterministic order.
 4. Confirm the public endpoint returns the System-owned hierarchy.
 
 Exit criteria: navigation is data-backed and contains no frontend-only link.

@@ -5,150 +5,191 @@
 - Status: proposed; migration approval pending
 - Created: 2026-11-27
 - Last updated: 2026-11-27
-- Scope: `backend`, `system_db`, `system-frontend-21`, shared frontend contracts,
-  `catalog-frontend-21`, and the Catalog compatibility cutover
+- Scope: `backend`, `system_db`, `system-frontend-21`, shared frontend
+  contracts, `catalog-frontend-21`, and the Catalog cutover
 - Related plan: `CATALOG_BACKEND_CONTROLLED_LAYOUT_INTEGRATION_PLAN.md`
-- Decision: public navigation and its translations will be owned by
-  `system_db` as a reusable tenant/client service for every application type
-- Audience decision: the same versioned presentation-navigation model supports
-  `PUBLIC`, `AUTHENTICATED`, and privilege-`RESTRICTED` publication. Audience
-  changes create and publish a new version; they never mutate a published tree.
-- Migration rule: no database migration is implemented by this plan. The
-  proposed migration and cross-database cutover require explicit approval.
+- Future upgrade:
+  `CENTRAL_NAVIGATION_VERSIONING_PUBLICATION_LOCALIZATION_UPGRADE_PLAN.md`
+- Decision: implement public navigation using the same direct hierarchy,
+  active-state, client-assignment, and runtime-filtering pattern used by the
+  existing privilege-controlled navigation
+- Deferred: navigation versions, drafts, publication pointers, rollback,
+  translations, and public/private audience conversion are excluded from this
+  phase and moved to the future central upgrade plan
+- Migration rule: this document proposes database changes but does not
+  authorize creating a migration. The migration requires explicit approval.
 
 ## 1. Objective
 
-Create a general System-owned public navigation service that can supply
-localized, published navigation to Catalog, corporate sites, portals, login
-pages, and future public applications without reusing authenticated privilege
-navigation or duplicating navigation schemas in each application database.
+Create a reusable System-owned public navigation registry for Catalog,
+corporate sites, login pages, portals, and future public clients.
 
-The service must support:
+The first implementation deliberately follows the existing authenticated
+navigation model:
 
-- tenant and client ownership;
-- multiple named navigation sets and rendering surfaces;
-- draft editing and atomic publication;
-- localized labels and accessibility text;
-- internal routes, external links, groups, and disabled placeholders;
-- deterministic hierarchy and ordering;
+```text
+Active public navigation hierarchy
+        +
+Active tenant/client item assignments
+        +
+Trusted resolved tenant and client
+        ↓
+Effective public navigation tree
+```
+
+The first implementation supports:
+
+- tenant-owned public navigation definitions;
+- client-specific item assignment;
+- PRIMARY, UTILITY, FOOTER, MOBILE, and LOGIN surfaces;
+- hierarchical groups and items;
+- internal routes, external links, and non-clickable groups;
+- active/inactive state and deterministic ordering;
+- numeric audit actor IDs;
 - tenant-scoped administration privileges;
-- anonymous read access through a narrow gateway;
-- authenticated and privilege-restricted presentation navigation through a
-  separate authenticated gateway;
-- controlled public-to-private and private-to-public publication;
-- version-aware caching and invalidation;
-- numeric actor IDs for all audit and publication fields;
-- fail-closed resolution for missing, inactive, unknown, or ambiguous context.
+- a narrow anonymous gateway;
+- fail-closed tenant/client resolution;
+- direct changes becoming effective immediately after a successful write.
 
-## 2. Ownership boundaries
+The first implementation does not support:
+
+- draft navigation trees;
+- immutable navigation versions;
+- publication or rollback;
+- translation tables or locale fallback;
+- public/private/restricted audience transitions;
+- reuse of authenticated privilege-navigation tables.
+
+## 2. Relationship to existing privilege-controlled navigation
+
+Existing authenticated navigation is a shared hierarchy filtered at runtime:
+
+```text
+sys_layout_module_groups
+  → sys_priv_modules
+    → sys_layout_navigation_categories
+      → sys_layout_feature_groups
+        → sys_layout_features
+          → sys_layout_feature_privileges
+
+sys_acc_client_feature_permissions
+  → limits features for the resolved tenant/client
+
+authenticated user privileges
+  → limit features for the current user
+```
+
+The new public model uses the same architectural style without privileges:
+
+```text
+sys_public_navigation_groups
+  → sys_public_navigation_items
+
+sys_acc_client_public_navigation_items
+  → limits items for the resolved tenant/client
+```
+
+Public navigation remains separate from the authenticated hierarchy. Public
+links are not authenticated application features and must not enter the
+privilege tree.
+
+## 3. Ownership boundaries
 
 | Concern | Authority |
 | --- | --- |
 | Tenant, verified hostname, client, and tenant/client mapping | `system_db` |
-| Public layout profile, theme, sizes, fonts, and region switches | `system_db` |
-| Public navigation sets, versions, items, translations, and publication pointer | `system_db` |
-| Authenticated application navigation and privilege filtering | Existing System privilege/layout tables |
-| Authentication, users, roles, and actor identity | `auth_db` |
+| Public layout profile, theme, fonts, sizes, and region switches | `system_db` |
+| Public navigation groups, items, and client assignments | `system_db` |
+| Authenticated feature navigation and privilege filtering | Existing System layout/privilege tables |
+| Authentication, users, roles, and audit actor identity | `auth_db` |
 | Catalog products, categories, pages, media, contact data, and SEO | `catalog_db` |
 
-Public navigation must not use or extend `sys_priv_modules`,
-`sys_layout_navigation_categories`, `sys_layout_feature_groups`, or
-`sys_layout_features`. Those tables describe authenticated application
-features and privilege-filtered navigation.
+## 4. Initial database model
 
-This plan uses **public navigation** for the anonymous use case and
-**presentation navigation** for the shared versioned model. Existing
-authenticated application-feature navigation remains authoritative for
-privilege-driven application modules and is not automatically converted.
+### 4.1 `sys_public_navigation_groups`
 
-## 3. Core model
-
-### 3.1 `sys_public_navigation_sets`
-
-One logical navigation definition for a tenant/client and public rendering
-surface.
-
-Proposed columns:
+A group is the tenant-owned root for one public rendering surface.
 
 | Column | Type | Rules |
 | --- | --- | --- |
 | `id` | `bigserial` | Primary key |
 | `tenant_id` | `bigint` | Required FK to `sys_tenants` |
-| `client_application_id` | `bigint` | Required FK to `sys_acc_client_applications` |
-| `navigation_code` | `varchar(80)` | Stable uppercase business key |
-| `navigation_name` | `varchar(150)` | Administrator-facing name |
+| `group_code` | `varchar(80)` | Stable uppercase business key |
+| `group_name` | `varchar(150)` | Administration label |
 | `surface` | `varchar(30)` | `PRIMARY`, `UTILITY`, `FOOTER`, `MOBILE`, or `LOGIN` |
-| `default_locale` | `varchar(20)` | Required locale fallback |
-| `default_for_surface` | `boolean` | Explicit default for this tenant/client/surface |
-| `active` | `boolean` | Inactive sets cannot resolve publicly |
-| `created_by`, `updated_by` | `bigint` | Numeric actor IDs |
+| `display_order` | `integer` | Required deterministic order |
+| `active` | `boolean` | Inactive groups are not resolved |
+| `version` | `bigint` | Optimistic-lock counter only |
+| `created_by`, `updated_by` | `bigint` | Required numeric actor IDs |
 | `created_at`, `updated_at` | `timestamp` | Required audit timestamps |
-
-Unique key:
-
-```text
-tenant_id + client_application_id + navigation_code
-```
-
-Only one active default set per tenant/client/surface is allowed. The default
-selection should be represented explicitly rather than inferred from creation
-order.
-
-### 3.2 `sys_public_navigation_versions`
-
-A version is an immutable publication candidate. Editors modify a draft
-version; anonymous readers resolve only the version selected by the publication
-record.
-
-Proposed columns:
-
-```text
-id
-navigation_set_id
-version_number
-state                 -- DRAFT, PUBLISHED, RETIRED
-access_level          -- PUBLIC, AUTHENTICATED, RESTRICTED
-privilege_match_mode  -- ANY, ALL; used only for RESTRICTED
-change_summary
-created_by
-updated_by
-published_by
-created_at
-updated_at
-published_at
-```
 
 Constraints:
 
-- unique `(navigation_set_id, version_number)`;
-- at most one mutable draft per set;
-- published versions are immutable;
-- `RESTRICTED` versions require at least one normalized version privilege;
-- `published_by` and `published_at` are both populated only for published
-  versions;
-- all actor fields use numeric IDs, with system actor `0` for migrations and
-  automation.
+```text
+unique (tenant_id, group_code)
+check surface in (PRIMARY, UTILITY, FOOTER, MOBILE, LOGIN)
+```
 
-### 3.3 `sys_public_navigation_items`
+A tenant may have multiple groups for a surface. `display_order` determines
+their order; resolution never infers order from primary keys.
 
-Items belong to one version, allowing publication to switch the complete tree
-atomically.
+### 4.2 `sys_public_navigation_items`
 
-Proposed columns:
+Items form a recursive hierarchy within a group.
 
 ```text
 id
-navigation_version_id
-item_key
+tenant_id
+navigation_group_id
 parent_id
+item_code
 item_type             -- GROUP, INTERNAL_ROUTE, EXTERNAL_URL
+label
+description
+aria_label
 route_path
 external_url
-target                 -- SELF, BLANK
-access_level           -- PUBLIC, AUTHENTICATED, RESTRICTED
-privilege_match_mode   -- ANY, ALL; used only for RESTRICTED
+target                -- SELF, BLANK
 icon
 display_order
+active
+version               -- optimistic-lock counter only
+created_by
+updated_by
+created_at
+updated_at
+```
+
+Constraints and rules:
+
+- unique `(navigation_group_id, item_code)`;
+- `parent_id` is optional for a root item;
+- parent and child must belong to the same tenant and group;
+- use a composite self-reference so a cross-group parent cannot be stored;
+- `INTERNAL_ROUTE` requires a normalized application-relative path;
+- `EXTERNAL_URL` requires an allowed `https` destination;
+- `GROUP` has no destination;
+- active children cannot have an inactive parent;
+- service validation rejects cycles and excessive depth;
+- sibling order is deterministic by `display_order`, then `id`;
+- all direct-ID reads and writes include authorized `tenant_id` in the
+  repository predicate.
+
+`label`, `description`, and `aria_label` contain the single configured language
+for this phase. Do not create translation columns or locale-specific duplicate
+items. Central translations are deferred to the future upgrade plan.
+
+### 4.3 `sys_acc_client_public_navigation_items`
+
+This assignment table is analogous to
+`sys_acc_client_feature_permissions`. It determines which tenant-owned public
+items a client may expose.
+
+```text
+id
+tenant_id
+client_application_id
+public_navigation_item_id
 active
 created_by
 updated_by
@@ -156,546 +197,346 @@ created_at
 updated_at
 ```
 
-Rules:
-
-- `item_key` is unique within a version and remains stable when cloning a new
-  draft;
-- `parent_id` must reference an item from the same version;
-- a root item has `parent_id = NULL`;
-- `INTERNAL_ROUTE` requires a normalized application-relative `route_path`;
-- `EXTERNAL_URL` requires an approved `https` URL;
-- `GROUP` has no destination;
-- an item's access level cannot be broader than its version's access level;
-- an item's access level cannot be broader than its parent's access level;
-- `RESTRICTED` items require at least one normalized item privilege;
-- cycles, excessive depth, duplicate sibling order, malformed destinations,
-  and cross-version parents block publication;
-- direct-ID reads and mutations include the navigation set's authorized
-  tenant in their repository predicate.
-
-Enforce the same-version parent rule with a unique key on
-`(id, navigation_version_id)` and a composite self-reference from
-`(parent_id, navigation_version_id)`. Service validation remains necessary for
-cycles and maximum depth.
-
-Audience ordering from broadest to narrowest is:
+Constraints:
 
 ```text
-PUBLIC < AUTHENTICATED < RESTRICTED
+unique (tenant_id, client_application_id, public_navigation_item_id)
+foreign key tenant_id → sys_tenants.id
+foreign key client_application_id → sys_acc_client_applications.id
+foreign key public_navigation_item_id → sys_public_navigation_items.id
 ```
 
-A `PUBLIC` version may contain public, authenticated, and restricted items. An
-`AUTHENTICATED` version may contain authenticated and restricted items. A
-`RESTRICTED` version contains restricted items only. Parent visibility always
-limits its descendants; validation rejects a broader child and filtering must
-not promote a child whose parent is not visible. `ANY` and `ALL` privilege
-matching are explicit and use the normalized mappings; an empty restricted
-mapping is invalid.
+The service must additionally prove that the item belongs to the same tenant
+and that an active `sys_acc_client_application_tenants` mapping exists. It must
+not trust a tenant or client relationship supplied only by the request.
 
-### 3.4 `sys_public_navigation_item_translations`
+Assign leaf links explicitly. Ancestor `GROUP` items are included only when
+they contain at least one assigned, active descendant. This mirrors the
+authenticated navigation service pruning empty branches.
 
-Proposed columns:
+## 5. Effective tree resolution
 
-```text
-id
-navigation_item_id
-locale
-label
-description
-aria_label
-created_by
-updated_by
-created_at
-updated_at
-```
-
-Unique key:
-
-```text
-navigation_item_id + locale
-```
-
-Publication requires a nonblank label in the set's default locale for every
-active item. Requested locale resolution follows:
-
-1. exact normalized requested locale;
-2. language-only locale when configured, for example `bn-BD` to `bn`;
-3. navigation set default locale;
-4. fail publication or omit the invalid item according to validation policy;
-   never return a label from another tenant or client.
-
-### 3.5 `sys_public_navigation_publications`
-
-This table is the atomic pointer used by public readers.
-
-Proposed columns:
-
-```text
-id
-navigation_set_id
-published_version_id
-publication_number
-published_by
-published_at
-created_by
-updated_by
-created_at
-updated_at
-```
-
-There is exactly one current publication row per navigation set. Publishing
-validates the complete draft and changes this pointer in one
-`systemTransactionManager` transaction. Previous published versions remain
-available for audit and rollback.
-
-### 3.6 `sys_public_navigation_version_privileges`
-
-Normalized privilege requirements for a `RESTRICTED` navigation version:
-
-```text
-id
-navigation_version_id
-privilege_id
-created_by
-updated_by
-created_at
-updated_at
-```
-
-Use a unique key on `(navigation_version_id, privilege_id)` and a foreign key
-to the canonical System privilege. Do not store comma-separated privilege
-codes.
-
-### 3.7 `sys_public_navigation_item_privileges`
-
-Normalized privilege requirements for a `RESTRICTED` versioned item:
-
-```text
-id
-navigation_item_id
-privilege_id
-created_by
-updated_by
-created_at
-updated_at
-```
-
-Use a unique key on `(navigation_item_id, privilege_id)`. Because items belong
-to immutable published versions, historical privilege requirements remain
-auditable and cannot change after publication.
-
-## 4. Resolution contract
-
-The first release is tenant/client scoped. Business- or branch-specific public
-navigation requires a later trusted business/branch resolver and must not be
-added by accepting caller-controlled scope IDs. The schema review must reserve
-a compatible extension path if that requirement is expected.
-
-Add a presentation-neutral gateway under `gatewaymodule.navigation`:
+Add a presentation-neutral boundary under `gatewaymodule.navigation`:
 
 ```java
 public interface PublicNavigationModuleGateway extends ModuleGateway {
-    PublicNavigationContextDto getPublishedPublicNavigation(
+    PublicNavigationContextDto getPublicNavigation(
             String clientCode,
-            String locale,
             Set<PublicNavigationSurface> surfaces);
 }
 ```
 
-Add a separate authenticated boundary:
-
-```java
-public interface AuthenticatedNavigationModuleGateway extends ModuleGateway {
-    NavigationContextDto getPublishedAuthenticatedNavigation(
-            String clientCode,
-            String locale,
-            Set<PublicNavigationSurface> surfaces,
-            Set<String> effectivePrivilegeCodes);
-}
-```
-
-The authenticated gateway is invoked only after authentication. Effective
-privileges come from the trusted authorization boundary, never directly from
-request JSON, query parameters, or headers.
-
-The gateway DTO contains only public fields:
+The public DTO contains only presentation fields:
 
 ```text
 clientCode
-locale
-publicationVersion
 regions[]
   surface
-  navigationCode
-  items[]
-    key
+  groups[]
+    code
     label
-    description
-    ariaLabel
-    type
-    path or externalUrl
-    target
-    icon
-    children[]
+    items[]
+      code
+      label
+      description
+      ariaLabel
+      type
+      path or externalUrl
+      target
+      icon
+      children[]
 ```
 
-It must not expose numeric database IDs, tenant IDs, actor IDs, drafts,
-privileges, roles, users, client secrets, or authenticated navigation metadata.
-
-The public gateway queries only published versions and items whose effective
-access is `PUBLIC`. It must enforce audience in repository predicates rather
-than loading private rows and filtering them in memory. The authenticated
-gateway may return `AUTHENTICATED` content and only those `RESTRICTED` entries
-whose normalized requirements match the caller's effective privileges.
-
-Tenant identity comes exclusively from `ResolvedTenantContextHolder`. The
-gateway accepts no tenant ID, hostname override, or caller-selected scope. It
-must verify an active tenant/client mapping before resolving a set.
-
-## 5. Resolution and failure behavior
+It must not expose tenant IDs, client database IDs, item database IDs, actor
+IDs, privilege codes, users, roles, assignments, secrets, or inactive rows.
 
 Resolution is deterministic:
 
-1. require the trusted resolved tenant;
+1. require `ResolvedTenantContextHolder`;
 2. resolve exactly one active client by normalized `clientCode`;
-3. verify the active tenant/client mapping;
-4. resolve one active default navigation set for every requested surface;
-5. resolve its current published version and allowed audience;
-6. load only active, audience-eligible items and translations with
-   tenant/client ownership in the query path;
-7. validate hierarchy integrity and build the ordered tree;
-8. apply locale fallback and return the reduced public DTO.
+3. require an active tenant/client mapping;
+4. query active groups for the resolved tenant and requested surfaces;
+5. query active items and active tenant/client item assignments using
+   tenant-qualified repository predicates;
+6. reject inconsistent parent relationships rather than repairing them in
+   memory;
+7. build the tree in deterministic order;
+8. remove groups and branches with no assigned link descendants;
+9. return the reduced public DTO.
 
-Fail closed when tenant or client resolution is unknown, inactive, or
-ambiguous. A surface with no published set returns an empty region and an
-operational diagnostic; it must not fall back to another tenant, client, or an
-authenticated navigation tree. A `system_db` failure propagates as service
-unavailability and affects readiness.
+Missing, inactive, unknown, or ambiguous tenant/client context fails closed.
+Missing assignments return empty regions with an operational diagnostic; they
+never fall back to another tenant, another client, or authenticated navigation.
+A `system_db` failure propagates and affects readiness.
 
-## 5.1 Audience transition workflow
+## 6. Write and visibility behavior
 
-Changing audience always starts from a new draft cloned from the current
-published version. The published version and its privilege mappings remain
-immutable until an atomic publication switches the pointer.
+This phase intentionally uses direct writes, matching existing authenticated
+navigation administration:
 
-### Public to authenticated or restricted
+```text
+Administrator saves an item or assignment
+        ↓
+Existing audited row changes in one System transaction
+        ↓
+Relevant cache entries are evicted
+        ↓
+Subsequent public requests see the new effective tree
+```
 
-1. Clone the published version into a draft.
-2. Change the version or selected item access level.
-3. Add canonical privilege mappings for `RESTRICTED` content.
-4. Validate hierarchy, inherited audience, destinations, and privilege
-   references.
-5. Publish atomically.
-6. Evict public and authenticated cache entries for the affected set.
+Use optimistic locking on mutable public navigation rows to prevent stale
+administrator updates. This technical `version` counter is not a navigation
+snapshot and must not be described as publication versioning.
 
-After publication, anonymous resolution must stop returning the affected tree
-or item immediately.
+Deactivation is the safe removal operation. Deactivating a group, item, or
+assignment removes it from subsequent public resolution. Physical deletion is
+allowed only when dependency checks succeed and a separate DELETE privilege is
+authorized.
 
-### Authenticated or restricted to public
+## 7. Administration access control
 
-1. Clone the published version into a draft.
-2. Select the entries that will become public.
-3. Remove privilege requirements from those entries.
-4. Validate every internal destination against an explicit public-route
-   registry and every external destination against the approved URL policy.
-5. Reject administrative routes, authenticated-only routes, secrets, internal
-   identifiers, or labels/descriptions unsuitable for anonymous disclosure.
-6. Require the dedicated `PUBLISH_PUBLIC` privilege and a successful fresh
-   validation report.
-7. Publish atomically and evict all audience caches.
-
-Navigation exposure does not change route or API authorization. A destination
-must already be independently authorized for anonymous use before its link can
-be published publicly.
-
-Existing authenticated feature navigation is never converted in place. An
-administrator may explicitly copy safe presentation fields into a new draft,
-which then follows the public validation and publication workflow.
-
-## 6. Administration access control
-
-Add a System-owned `Public Navigation` administration feature with separate
-privileges:
+Register a System-owned `Public Navigation` feature with:
 
 ```text
 VIEW
 SEARCH
 CREATE
 UPDATE
-PUBLISH
-PUBLISH_PUBLIC
-ROLLBACK
 DELETE
+ASSIGN
 ```
 
-The feature is registered in the privilege catalog and granted explicitly to
-administration clients. Missing grants deny access.
+No `PUBLISH`, `PUBLISH_PUBLIC`, or `ROLLBACK` action is part of this phase.
 
-All administration APIs require authenticated tenant scope:
+Proposed administration APIs:
 
 ```text
-GET    /api/v1/system/public-navigation/sets
-POST   /api/v1/system/public-navigation/sets
-GET    /api/v1/system/public-navigation/sets/{id}
-POST   /api/v1/system/public-navigation/sets/{id}/draft
-PUT    /api/v1/system/public-navigation/drafts/{versionId}
-POST   /api/v1/system/public-navigation/drafts/{versionId}/validate
-POST   /api/v1/system/public-navigation/drafts/{versionId}/publish
-POST   /api/v1/system/public-navigation/drafts/{versionId}/publish-public
-POST   /api/v1/system/public-navigation/sets/{id}/rollback/{versionId}
-DELETE /api/v1/system/public-navigation/sets/{id}
+POST /api/v1/system/public-navigation/groups/list
+POST /api/v1/system/public-navigation/groups/save
+POST /api/v1/system/public-navigation/items/list
+POST /api/v1/system/public-navigation/items/save
+POST /api/v1/system/public-navigation/items/deactivate
+POST /api/v1/system/public-navigation/items/delete
+POST /api/v1/system/public-navigation/assignments/list
+POST /api/v1/system/public-navigation/assignments/replace
+POST /api/v1/system/public-navigation/integrity
+POST /api/v1/system/public-navigation/preview
 ```
 
-Controllers use action-specific `@PrivilegeApi`/authorization checks with
-`ApiDataScope.TENANT`. Service and repository methods independently enforce
-the authorized tenant. Client, business, branch, tenant, actor, and publication
-fields are never trusted from writable request fields.
+Controllers use action-specific authorization with `ApiDataScope.TENANT`.
+Services and repositories independently enforce tenant scope. Writable DTOs do
+not accept audit actors, timestamps, or resolved ownership. They include only
+the expected optimistic-lock counter for stale-write protection.
 
-`PUBLISH_PUBLIC` is mandatory when a publication would broaden any version or
-item from `AUTHENTICATED`/`RESTRICTED` to `PUBLIC`. Ordinary `PUBLISH` cannot
-authorize anonymous exposure. Rollback to a version containing broader public
-access also requires `PUBLISH_PUBLIC`.
+## 8. System frontend changes
 
-## 7. System administration UI
-
-Add `Public Navigation Administration` under System Setup. The UI includes:
+Add `Public Navigation Administration` under System Setup with:
 
 - authorized tenant selector;
-- client application selector filtered by the selected tenant;
-- navigation set and surface selector;
-- access-level selector for `PUBLIC`, `AUTHENTICATED`, and `RESTRICTED`;
-- searchable canonical privilege selector for restricted versions/items;
-- locale management;
-- hierarchical item editor with explicit ordering;
-- internal/external destination validation;
-- draft validation results;
-- published versus draft comparison;
-- publish and rollback actions protected by their specific privileges;
-- active/inactive and publication status indicators;
-- read-only publication history with numeric actors resolved to display data
-  through the Auth-owned boundary.
+- client selector filtered by active tenant/client assignments;
+- surface selector;
+- group and recursive item editor;
+- item type and destination validation;
+- active/inactive indicators;
+- deterministic sibling ordering;
+- client item assignment checklist;
+- full replacement summary before assignment save;
+- effective-tree preview for the selected tenant/client/surface;
+- integrity report for cycles, orphaned parents, inactive-parent violations,
+  invalid destinations, and invalid assignments;
+- optimistic-lock conflict handling;
+- action visibility controlled by VIEW, CREATE, UPDATE, DELETE, and ASSIGN.
 
-Changing an access level edits only the current draft. Selecting `PUBLIC`
-opens an exposure review that lists newly anonymous items, routes, external
-URLs, and privilege mappings to be removed. Publish remains disabled until the
-backend returns a fresh successful validation result. Any subsequent draft
-mutation invalidates that result.
+Changing tenant clears the selected client, group, item, assignment state, and
+preview. Changing client clears assignment and preview state and reloads the
+effective tree. The UI must never retain IDs from a previous scope.
 
-Changing tenant or client must reload all dependent data. The UI must never
-retain or submit a set from a previously selected scope.
+The existing authenticated `NavigationTreeComponent` remains unchanged. Shared
+editor primitives may be reused, but public navigation uses its own models,
+service, routes, and authorization contract.
 
-## 8. Catalog integration
+## 9. Catalog integration
 
-`CatalogContextService` remains the response composer. It will call:
+`CatalogContextService` remains the response composer:
 
 ```text
 LayoutModuleGateway.getPublicLayout("CATALOG", origin)
-PublicNavigationModuleGateway.getPublishedPublicNavigation(
-    "CATALOG", locale, {PRIMARY, UTILITY, FOOTER})
+PublicNavigationModuleGateway.getPublicNavigation(
+    "CATALOG", {PRIMARY, UTILITY, FOOTER})
 ```
 
-The Catalog repository will continue reading site identity, SEO, contact,
-products, categories, pages, and media from `catalog_db`. It will stop being
-the authoritative reader for public navigation after cutover.
+The Catalog repository continues to read site identity, SEO, contact,
+products, categories, pages, and media from `catalog_db`. After cutover it no
+longer owns public navigation.
 
-For response compatibility, the first rollout maps the System `PRIMARY` region
-to the existing `PublicSiteResponse.navigation` field. Add an explicit
-`navigationRegions` field when the Catalog shell begins consuming utility and
-footer regions. The frontend renders these public regions and never consumes
-the authenticated System `navTree`.
+For compatibility, map the PRIMARY region to the existing
+`PublicSiteResponse.navigation` field. Add `navigationRegions` when the Catalog
+shell consumes UTILITY and FOOTER independently. The frontend never consumes
+the authenticated System `navTree` as public navigation.
 
-## 9. Catalog data migration and cutover
+Because translations are deferred, this phase returns the configured label
+regardless of the Catalog `lang` request. The UI and API must state this
+limitation explicitly until the central localization upgrade is implemented.
 
-Because PostgreSQL cannot create foreign keys or a single Flyway transaction
-across `catalog_db` and `system_db`, use an audited export/import/reconciliation
-procedure rather than a cross-database migration.
+## 10. Catalog data cutover
+
+PostgreSQL cannot perform one Flyway transaction across `catalog_db` and
+`system_db`. Use an audited, rerunnable import and reconciliation procedure.
 
 ### Phase A: inventory
 
-1. Inventory every tenant/site with `catalog_navigation_items` and
-   `catalog_navigation_item_translations`.
-2. Reject orphaned parents, cycles, unresolved tenants, duplicate locale rows,
-   missing default-locale labels, unsupported URL schemes, and nonnumeric
-   actors.
-3. Produce a review report before writing System data.
+1. Inventory existing Catalog navigation and translation rows.
+2. Select and document the one source locale imported into the initial System
+   label fields.
+3. Reject orphaned parents, cycles, unsupported URLs, unresolved tenants,
+   invalid actors, and duplicate business keys.
+4. Produce a review report before writing System data.
 
-### Phase B: System schema and service
+### Phase B: schema and service
 
-1. Add the seven `sys_public_navigation_*` tables through the next approved
-   additive System Flyway migration.
-2. Add constraints, indexes, repositories, services, gateway, admin APIs,
-   privileges, health checks, and backup coverage.
-3. Validate empty and upgraded database migration paths.
+1. Add the three approved System tables.
+2. Add constraints, entities, repositories, services, gateway, administration
+   APIs, privileges, health evidence, and tests.
+3. Validate clean and upgraded System migration paths.
 
 ### Phase C: deterministic import
 
-1. Resolve tenant and client by trusted stable keys.
-2. Create a `CATALOG_PRIMARY` set for each Catalog tenant/client with published
-   access level `PUBLIC`.
-3. Copy the complete hierarchy into version 1 using stable item keys derived
-   from the source identity.
-4. Copy translations and numeric audit actors.
-5. Validate counts, hierarchy hashes, paths, locales, and ordered tree output.
-6. Publish version 1 with system actor `0` only when all validation passes.
+1. Resolve tenant and CATALOG client by trusted stable keys.
+2. Import groups and hierarchical items with system actor `0` only for
+   migration-created rows.
+3. Create tenant/client item assignments.
+4. Compare item counts, business keys, hierarchy, routes, order, and state.
+5. Keep invalid or ambiguous source rows inaccessible for explicit repair.
 
-The importer is rerunnable and records source database, source table, source
-identity, target set, target version, execution ID, and result. Ambiguous or
-invalid rows remain unpublished for explicit repair.
+### Phase D: shadow comparison and cutover
 
-### Phase D: comparison and cutover
-
-1. Add shadow reads that compare Catalog and System navigation without changing
-   the response.
-2. Require matching normalized trees for supported locales.
-3. Switch `CatalogContextService` to System navigation through a configuration
+1. Compare normalized Catalog and System trees without changing the response.
+2. Switch `CatalogContextService` to the System gateway through a configuration
    flag.
-4. Observe errors, empty-set diagnostics, cache behavior, and SSR output.
-5. Make System authoritative after acceptance.
-
-Do not dual-write indefinitely. During the short transition, either freeze
-Catalog navigation edits or route all edits through one orchestration service
-with explicit failure reporting.
+3. Verify empty-state behavior, cache eviction, tenant isolation, and SSR.
+4. Make System authoritative after acceptance.
 
 ### Phase E: retirement
 
-Keep Catalog navigation tables read-only for one release and retain them for
-rollback evidence. Drop or archive them only through a separately approved
-Catalog migration after the rollback window closes.
+Keep Catalog navigation tables read-only for one release. Archive or remove
+them only through a separately approved Catalog migration after the rollback
+window.
 
-## 10. Cache and publication semantics
+## 11. Cache behavior
 
-Cache public trees using at least:
+Cache effective public trees using at least:
 
 ```text
-tenantId + clientApplicationId + navigationSetId
-+ publishedVersionId + locale + surface + audience
+tenantId + clientApplicationId + surface + navigationChangeToken
 ```
 
-Draft edits do not invalidate public caches. Publishing or rollback changes the
-publication pointer and evicts only the affected tenant/client/set entries.
-Do not cache solely by hostname, client code, locale, or navigation code.
-Authenticated restricted-tree caches also include a stable effective-privilege
-fingerprint or are scoped to an equivalent authorization decision key. Public
-and authenticated trees never share a cache entry.
+Every group, item, or assignment mutation evicts the affected tenant/client
+entries. Do not cache by hostname, client code, or surface alone. The future
+central versioning plan may replace `navigationChangeToken` with an immutable
+published version identifier.
 
-## 11. Backup and recovery
+## 12. Backup and recovery
 
-System backup and restore verification must include all
-`sys_public_navigation_*` tables and prove:
+System backup and restore verification includes the three public navigation
+tables and proves parent ownership, assignment ownership, active client mapping,
+deterministic tree resolution, and exclusion of inactive or unassigned items.
 
-- current publication pointers reference valid versions;
-- each item parent belongs to the same version;
-- default-locale translations are complete;
-- a known tenant/client/locale resolves the expected tree;
-- no draft becomes public after restore;
-- Catalog and System recovery points are recorded independently.
+Catalog business-content recovery still requires `catalog_db`; public
+navigation and layout recovery require `system_db`.
 
-Catalog content recovery still requires `catalog_db`; public navigation and
-layout recovery require `system_db`. Recovery documentation must state this
-split explicitly.
-
-## 12. Testing strategy
+## 13. Testing strategy
 
 ### Database
 
-- clean and upgraded Flyway migration tests;
-- unique tenant/client/code and default-surface constraints;
-- same-version parent constraint and orphan detection;
-- immutable published-version behavior;
-- valid access-level constraints and normalized version/item privilege links;
-- database/query evidence that anonymous reads cannot select nonpublic rows;
-- numeric audit and publication actor enforcement;
-- deterministic import and rerun tests.
+- clean and upgraded migration paths;
+- tenant/group business-key uniqueness;
+- same-tenant and same-group parent constraints;
+- item type and destination checks;
+- assignment uniqueness and referential integrity;
+- numeric actor and timestamp requirements;
+- optimistic-lock column defaults.
 
 ### Backend
 
-- tenant isolation for list, detail, update, publish, rollback, and delete;
-- wrong client and inactive mapping rejection;
-- unknown, inactive, and ambiguous context failure;
-- locale fallback ordering;
-- cycle, depth, destination, and missing-label publication rejection;
-- atomic publication pointer change;
-- public-to-private removal from anonymous resolution;
-- private-to-public rejection without `PUBLISH_PUBLIC`;
-- public-route registry enforcement for newly anonymous internal routes;
-- restricted version/item matching against trusted effective privileges;
-- parent visibility preventing orphaned child promotion;
-- public DTO serialization excludes internal IDs and authorization data;
-- `CatalogContextService` uses System navigation and keeps Catalog content
-  reads in `catalog_db`.
+- unknown, inactive, and ambiguous tenant/client failure;
+- inactive tenant/client mapping rejection;
+- tenant isolation for every direct-ID operation;
+- active group, item, and assignment filtering in repository predicates;
+- cycle, depth, parent, and destination validation;
+- deterministic order and empty-ancestor pruning;
+- client assignment replacement authorization;
+- stale update rejection and cache eviction;
+- public DTO serialization excludes internal and authorization metadata;
+- Catalog composition uses System navigation while Catalog business content
+  remains in `catalog_db`.
 
 ### Frontend
 
-- tenant/client changes reload sets and clear stale selection;
-- locale editor completeness;
-- hierarchy editing and ordering;
-- privilege-specific action visibility;
-- access-level changes occur only in drafts;
-- restricted access displays a canonical privilege selector;
-- private-to-public review lists newly exposed routes and requires
-  `PUBLISH_PUBLIC`;
-- draft mutation invalidates a previously successful exposure validation;
-- SSR and hydration produce identical published navigation;
-- PRIMARY, UTILITY, FOOTER, and MOBILE regions render independently;
-- empty published regions do not reveal authenticated application navigation.
+- tenant changes clear client and all dependent state;
+- client changes reload assignments and preview;
+- unauthorized actions are hidden or disabled;
+- active/inactive status remains visible;
+- hierarchy editing prevents invalid parents and excessive depth;
+- item type changes clear incompatible destination fields;
+- assignment replacement summary matches submitted changes;
+- stale update conflicts reload current data without changing scope;
+- preview contains only assigned active links and necessary ancestors.
 
-## 13. Delivery phases
+## 14. Delivery phases
 
-### Phase 1: contract and schema review — Pending
+### Phase 1: model and migration review — Pending
 
-- approve ownership model, surfaces, audiences, DTOs, constraints, privilege
-  mappings, and publication rules;
-- approve the System migration before creating it;
-- approve the Catalog import/cutover procedure.
+- approve the three-table direct hierarchy and assignment model;
+- approve the single-language limitation;
+- approve the next additive System migration before creating it;
+- approve the Catalog import and cutover procedure.
 
 ### Phase 2: System backend — Pending
 
-- implement migration, entities, repositories, services, validation,
-  audience-aware publication, public/authenticated gateways, privileges,
-  health, and tests.
+- implement migration, entities, repositories, validation, gateway,
+  administration APIs, privileges, caching, health evidence, and tests.
 
-### Phase 3: administration UI — Pending
+### Phase 3: System administration UI — Pending
 
-- implement tenant/client scoped navigation editing, translation, validation,
-  audience/privilege editing, publication, exposure review, history, and
-  rollback.
+- implement tenant/client scoped hierarchy, assignment, integrity, and preview
+  workflows.
 
-### Phase 4: Catalog import and shadow comparison — Pending
+### Phase 4: Catalog import and comparison — Pending
 
-- inventory and repair source data;
-- import Catalog navigation into System;
-- compare normalized output for every supported locale.
+- inventory source navigation and translations;
+- import the selected source locale;
+- compare effective trees and repair invalid data.
 
 ### Phase 5: application cutover — Pending
 
-- compose System public navigation in `CatalogContextService`;
-- update the Catalog shell to render navigation regions;
-- verify SSR, tenant isolation, cache invalidation, and failure behavior.
+- compose System navigation in `CatalogContextService`;
+- render System regions in the Catalog shell;
+- verify SSR, tenant isolation, cache eviction, and failure behavior.
 
-### Phase 6: source retirement — Pending
+### Phase 6: future central upgrade — Deferred
 
-- complete rollback window;
-- separately approve archival or removal of Catalog navigation tables;
-- update backup, recovery, operational, and ownership documentation.
+- follow
+  `CENTRAL_NAVIGATION_VERSIONING_PUBLICATION_LOCALIZATION_UPGRADE_PLAN.md`;
+- introduce versions, drafts, publications, rollback, translations, and
+  controlled audience transitions for both public and authenticated
+  navigation through a separately approved change.
 
-## 14. Acceptance criteria
+## 15. Acceptance criteria
 
-- One reusable System service resolves public navigation for any active
-  tenant/client application.
-- Anonymous responses contain only a published, localized public tree.
-- Authenticated responses contain only audience-eligible entries, with
-  restricted entries matched against trusted effective privileges.
-- Public/private changes are draft-based, versioned, validated, audited, and
-  applied only by atomic publication.
-- Broadening access to `PUBLIC` requires `PUBLISH_PUBLIC` and independently
-  public destination routes.
-- Drafts and authenticated privilege navigation never appear publicly.
-- Tenant and client scope cannot be selected or widened by request input.
+- System resolves an effective public tree for an active tenant/client using
+  direct hierarchy and assignment records.
+- Public navigation follows the existing authenticated-navigation pattern
+  without reusing privilege-navigation tables.
+- Only active, assigned links and their necessary active ancestors are
+  returned.
+- Changes become effective immediately after successful audited writes and
+  cache eviction.
+- Tenant/client ownership cannot be selected or widened by caller input.
 - Administration actions require explicit tenant-scoped privileges.
-- Publication and rollback switch a complete version atomically.
-- Catalog returns System-owned public navigation while continuing to read its
-  business content from `catalog_db`.
-- Invalid, missing, inactive, unknown, or ambiguous configuration fails closed
-  without falling back across tenant or client boundaries.
-- Migration, import, comparison, backup, restore, and rollback procedures are
-  reproducible and auditable.
+- Catalog consumes System navigation while retaining its business content in
+  `catalog_db`.
+- No draft, publication, rollback, audience-transition, or translation claim
+  is made by this phase.
+- Migration, import, backup, restore, and cutover procedures are reproducible
+  and auditable.
+

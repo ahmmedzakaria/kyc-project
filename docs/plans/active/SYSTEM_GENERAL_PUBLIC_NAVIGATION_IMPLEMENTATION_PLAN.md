@@ -2,7 +2,8 @@
 
 ## Document control
 
-- Status: in progress; foundation implemented, backend and application cutover pending
+- Status: in progress; core backend and administration UI implemented, data
+  import and production cutover pending
 - Created: 2026-11-27
 - Last updated: 2026-11-27
 - Scope: `backend`, `system_db`, `system-frontend-21`, shared frontend
@@ -36,33 +37,63 @@ Reviewed against the codebase on 2026-11-27.
 - Added the presentation-neutral `PublicNavigationModuleGateway` boundary.
 - Added `PublicNavigationContextDto` with regions, groups, recursive items,
   destinations, targets, icons, and presentation labels.
+- Implemented tenant-qualified repositories, typed surface and item contracts,
+  hierarchy and destination validation, deterministic effective-tree pruning,
+  client assignment replacement, optimistic-lock checks, integrity reporting,
+  preview, mutation APIs, cache eviction, and health reporting.
+- Added focused resolution, fail-closed client mapping, and Catalog composition
+  tests.
+- Added the System public-navigation administration route, API service, models,
+  tenant/client dependent-state clearing, group and item editing, assignment
+  replacement, integrity display, and effective-tree preview.
+- Added feature-flagged Catalog composition, `navigationRegions`, and PRIMARY
+  compatibility mapping while retaining Catalog business content ownership.
+- Fixed `CatalogProperties` constructor binding by retaining only the canonical
+  record constructor and added a Spring context binding regression test for
+  `catalog.system-navigation-enabled` and the related Catalog properties.
+- Backend compilation, focused backend tests, and the System frontend production
+  build pass. The frontend build retains existing bundle-budget warnings.
 
 ### Partially done
 
-- The backend data model and external gateway contract exist, but there is no
-  repository, service implementation, validation layer, or gateway adapter.
-- The gateway currently accepts `Set<String>` surfaces; the planned
-  `PublicNavigationSurface` enum and typed contract are not yet implemented.
-- Optimistic-lock fields exist on groups and items, but stale-write behavior
-  is not implemented or tested through administration services.
-- The Catalog frontend has an existing public navigation shell and an end-to-
-  end navigation test, but it still renders navigation supplied by the
-  Catalog-owned response rather than System public navigation regions.
+- The System administration route is usable by existing Layout administrators.
+  Dedicated public-navigation privilege and sidebar seeding is still pending.
+- `CatalogContextService` composes System navigation when
+  `catalog.system-navigation-enabled=true` and maps PRIMARY links to the legacy
+  response field. The flag remains disabled by default until import and shadow
+  comparison are complete.
 
 ### Pending
 
-- Implement tenant-qualified repositories, tree resolution, assignment
-  replacement, validation, integrity checks, preview, and mutation services.
-- Implement administration controllers, action-specific privileges, API
-  registration, cache eviction, health evidence, and targeted backend tests.
-- Implement the System administration UI and its tenant/client scope reset,
-  hierarchy editing, assignment, preview, integrity, and conflict workflows.
+- Add dedicated VIEW, SEARCH, CREATE, UPDATE, DELETE, and ASSIGN privilege and
+  sidebar/API grant seeding through a separately approved additive migration;
+  current endpoints temporarily use Layout administration privileges.
+- Health/readiness evidence is implemented through the public-navigation health
+  indicator. Add backup/restore evidence and expand backend coverage for write
+  validation, authorization, cache eviction, and stale updates.
+- Complete administration UI deactivation/deletion controls, replacement
+  summary, and explicit stale-conflict reload messaging.
 - Inventory and reconcile existing Catalog navigation and translations, then
   perform the deterministic import and shadow comparison.
-- Compose System navigation in `CatalogContextService`, add navigation regions
-  to the public response, and switch the Catalog shell to those regions.
+- Enable System navigation for Catalog after import and shadow comparison; the
+  response composition and compatibility mapping are already implemented.
 - Verify clean and upgraded migration paths, tenant isolation, failure and
   empty-state behavior, cache eviction, SSR, backup, and restore.
+
+### Verification notes
+
+- `mvn -DskipTests compile`: passed.
+- `mvn -Dtest=PublicNavigationServiceTest,CatalogContextServiceTest test`:
+  passed, 4 tests.
+- `mvn -Dtest=CatalogPropertiesBindingTest,CatalogContextServiceTest test`:
+  passed, 3 tests; verifies Spring can instantiate and bind `CatalogProperties`.
+- `npm run build` in `system-frontend-21`: passed with existing budget warnings.
+- `SystemDatabaseMigrationTest`: compiled but all 4 tests were skipped because
+  Docker was unavailable in the execution environment; clean and upgraded
+  migration verification therefore remains pending.
+- Existing System frontend contract tests still report pre-existing inventory
+  gaps for wildcard/workflow routes and unrelated endpoints. The new public-
+  navigation route and endpoints are present in the feature contract.
 
 ## 1. Objective
 
@@ -539,18 +570,22 @@ navigation and layout recovery require `system_db`.
 - **Pending:** record acceptance of the single-language limitation and approve
   the Catalog import and cutover procedure before that data work begins.
 
-### Phase 2: System backend — Partially done
+### Phase 2: System backend — Core implementation done; hardening pending
 
 - **Done:** added group, item, and client-assignment entities.
 - **Done:** added the public gateway interface and presentation DTO.
-- **Pending:** implement repositories, validation, effective-tree resolution,
-  gateway implementation, administration APIs, privileges, caching, health
-  evidence, and tests.
+- **Done:** implemented repositories, validation, effective-tree resolution,
+  gateway implementation, administration APIs, caching, and focused tests.
+- **Done:** added a public-navigation health indicator with schema-access counts.
+- **Pending:** add dedicated privileges and broader mutation and authorization
+  tests.
 
-### Phase 3: System administration UI — Pending
+### Phase 3: System administration UI — Core workflow done; completion controls pending
 
-- implement tenant/client scoped hierarchy, assignment, integrity, and preview
-  workflows.
+- **Done:** implemented tenant/client scoped hierarchy editing, assignment,
+  integrity, and preview workflows with dependent-state clearing.
+- **Pending:** add deletion/deactivation controls, replacement summary, stale
+  conflict recovery, and the seeded sidebar entry.
 
 ### Phase 4: Catalog import and comparison — Pending
 
@@ -558,12 +593,15 @@ navigation and layout recovery require `system_db`.
 - import the selected source locale;
 - compare effective trees and repair invalid data.
 
-### Phase 5: application cutover — Pending
+### Phase 5: application cutover — Partially done
 
-- compose System navigation in `CatalogContextService`;
-- render System regions in the Catalog shell;
-- verify SSR, tenant isolation, cache eviction, and failure behavior.
-- remove the Catalog-owned navigation read only after shadow comparison and
+- **Done:** compose System navigation in `CatalogContextService` behind
+  `catalog.system-navigation-enabled` and expose `navigationRegions`.
+- **Done:** map PRIMARY System navigation to the Catalog shell's compatible
+  `navigation` field when enabled.
+- **Pending:** enable the flag only after import and shadow comparison;
+- **Pending:** verify SSR, tenant isolation, cache eviction, and failure behavior.
+- **Pending:** remove the Catalog-owned navigation read only after shadow comparison and
   cutover acceptance; it is still the active source today.
 
 ### Phase 6: future central upgrade — Deferred
@@ -576,19 +614,23 @@ navigation and layout recovery require `system_db`.
 
 ## 15. Acceptance criteria
 
-- System resolves an effective public tree for an active tenant/client using
-  direct hierarchy and assignment records.
-- Public navigation follows the existing authenticated-navigation pattern
-  without reusing privilege-navigation tables.
-- Only active, assigned links and their necessary active ancestors are
+- **Done:** System resolves an effective public tree for an active tenant/client
+  using direct hierarchy and assignment records.
+- **Done:** Public navigation follows the existing authenticated-navigation
+  pattern without reusing privilege-navigation tables.
+- **Done:** Only active, assigned links and their necessary active ancestors are
   returned.
-- Changes become effective immediately after successful audited writes and
-  cache eviction.
-- Tenant/client ownership cannot be selected or widened by caller input.
-- Administration actions require explicit tenant-scoped privileges.
-- Catalog consumes System navigation while retaining its business content in
+- **Done:** Changes become effective immediately after successful audited writes
+  and cache eviction.
+- **Done:** Tenant/client ownership is enforced through trusted resolution,
+  active client mapping, tenant-qualified predicates, and administration data
+  scope.
+- **Partially done:** Administration actions require tenant-scoped Layout
+  privileges; dedicated public-navigation action privileges remain pending.
+- **Partially done:** Catalog can consume System navigation behind the disabled
+  cutover flag while retaining its business content in
   `catalog_db`.
-- No draft, publication, rollback, audience-transition, or translation claim
-  is made by this phase.
-- Migration, import, backup, restore, and cutover procedures are reproducible
-  and auditable.
+- **Done:** No draft, publication, rollback, audience-transition, or translation
+  claim is made by this phase.
+- **Pending:** Migration, import, backup, restore, and cutover procedures are
+  reproducible and auditable.

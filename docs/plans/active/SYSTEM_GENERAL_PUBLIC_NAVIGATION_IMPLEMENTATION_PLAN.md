@@ -4,11 +4,15 @@
 
 - Status: proposed; migration approval pending
 - Created: 2026-11-27
+- Last updated: 2026-11-27
 - Scope: `backend`, `system_db`, `system-frontend-21`, shared frontend contracts,
   `catalog-frontend-21`, and the Catalog compatibility cutover
 - Related plan: `CATALOG_BACKEND_CONTROLLED_LAYOUT_INTEGRATION_PLAN.md`
 - Decision: public navigation and its translations will be owned by
   `system_db` as a reusable tenant/client service for every application type
+- Audience decision: the same versioned presentation-navigation model supports
+  `PUBLIC`, `AUTHENTICATED`, and privilege-`RESTRICTED` publication. Audience
+  changes create and publish a new version; they never mutate a published tree.
 - Migration rule: no database migration is implemented by this plan. The
   proposed migration and cross-database cutover require explicit approval.
 
@@ -29,6 +33,9 @@ The service must support:
 - deterministic hierarchy and ordering;
 - tenant-scoped administration privileges;
 - anonymous read access through a narrow gateway;
+- authenticated and privilege-restricted presentation navigation through a
+  separate authenticated gateway;
+- controlled public-to-private and private-to-public publication;
 - version-aware caching and invalidation;
 - numeric actor IDs for all audit and publication fields;
 - fail-closed resolution for missing, inactive, unknown, or ambiguous context.
@@ -48,6 +55,11 @@ Public navigation must not use or extend `sys_priv_modules`,
 `sys_layout_navigation_categories`, `sys_layout_feature_groups`, or
 `sys_layout_features`. Those tables describe authenticated application
 features and privilege-filtered navigation.
+
+This plan uses **public navigation** for the anonymous use case and
+**presentation navigation** for the shared versioned model. Existing
+authenticated application-feature navigation remains authoritative for
+privilege-driven application modules and is not automatically converted.
 
 ## 3. Core model
 
@@ -95,6 +107,8 @@ id
 navigation_set_id
 version_number
 state                 -- DRAFT, PUBLISHED, RETIRED
+access_level          -- PUBLIC, AUTHENTICATED, RESTRICTED
+privilege_match_mode  -- ANY, ALL; used only for RESTRICTED
 change_summary
 created_by
 updated_by
@@ -109,6 +123,7 @@ Constraints:
 - unique `(navigation_set_id, version_number)`;
 - at most one mutable draft per set;
 - published versions are immutable;
+- `RESTRICTED` versions require at least one normalized version privilege;
 - `published_by` and `published_at` are both populated only for published
   versions;
 - all actor fields use numeric IDs, with system actor `0` for migrations and
@@ -130,6 +145,8 @@ item_type             -- GROUP, INTERNAL_ROUTE, EXTERNAL_URL
 route_path
 external_url
 target                 -- SELF, BLANK
+access_level           -- PUBLIC, AUTHENTICATED, RESTRICTED
+privilege_match_mode   -- ANY, ALL; used only for RESTRICTED
 icon
 display_order
 active
@@ -148,6 +165,9 @@ Rules:
 - `INTERNAL_ROUTE` requires a normalized application-relative `route_path`;
 - `EXTERNAL_URL` requires an approved `https` URL;
 - `GROUP` has no destination;
+- an item's access level cannot be broader than its version's access level;
+- an item's access level cannot be broader than its parent's access level;
+- `RESTRICTED` items require at least one normalized item privilege;
 - cycles, excessive depth, duplicate sibling order, malformed destinations,
   and cross-version parents block publication;
 - direct-ID reads and mutations include the navigation set's authorized
@@ -157,6 +177,20 @@ Enforce the same-version parent rule with a unique key on
 `(id, navigation_version_id)` and a composite self-reference from
 `(parent_id, navigation_version_id)`. Service validation remains necessary for
 cycles and maximum depth.
+
+Audience ordering from broadest to narrowest is:
+
+```text
+PUBLIC < AUTHENTICATED < RESTRICTED
+```
+
+A `PUBLIC` version may contain public, authenticated, and restricted items. An
+`AUTHENTICATED` version may contain authenticated and restricted items. A
+`RESTRICTED` version contains restricted items only. Parent visibility always
+limits its descendants; validation rejects a broader child and filtering must
+not promote a child whose parent is not visible. `ANY` and `ALL` privilege
+matching are explicit and use the normalized mappings; an empty restricted
+mapping is invalid.
 
 ### 3.4 `sys_public_navigation_item_translations`
 
@@ -214,6 +248,42 @@ validates the complete draft and changes this pointer in one
 `systemTransactionManager` transaction. Previous published versions remain
 available for audit and rollback.
 
+### 3.6 `sys_public_navigation_version_privileges`
+
+Normalized privilege requirements for a `RESTRICTED` navigation version:
+
+```text
+id
+navigation_version_id
+privilege_id
+created_by
+updated_by
+created_at
+updated_at
+```
+
+Use a unique key on `(navigation_version_id, privilege_id)` and a foreign key
+to the canonical System privilege. Do not store comma-separated privilege
+codes.
+
+### 3.7 `sys_public_navigation_item_privileges`
+
+Normalized privilege requirements for a `RESTRICTED` versioned item:
+
+```text
+id
+navigation_item_id
+privilege_id
+created_by
+updated_by
+created_at
+updated_at
+```
+
+Use a unique key on `(navigation_item_id, privilege_id)`. Because items belong
+to immutable published versions, historical privilege requirements remain
+auditable and cannot change after publication.
+
 ## 4. Resolution contract
 
 The first release is tenant/client scoped. Business- or branch-specific public
@@ -225,12 +295,28 @@ Add a presentation-neutral gateway under `gatewaymodule.navigation`:
 
 ```java
 public interface PublicNavigationModuleGateway extends ModuleGateway {
-    PublicNavigationContextDto getPublishedNavigation(
+    PublicNavigationContextDto getPublishedPublicNavigation(
             String clientCode,
             String locale,
             Set<PublicNavigationSurface> surfaces);
 }
 ```
+
+Add a separate authenticated boundary:
+
+```java
+public interface AuthenticatedNavigationModuleGateway extends ModuleGateway {
+    NavigationContextDto getPublishedAuthenticatedNavigation(
+            String clientCode,
+            String locale,
+            Set<PublicNavigationSurface> surfaces,
+            Set<String> effectivePrivilegeCodes);
+}
+```
+
+The authenticated gateway is invoked only after authentication. Effective
+privileges come from the trusted authorization boundary, never directly from
+request JSON, query parameters, or headers.
 
 The gateway DTO contains only public fields:
 
@@ -256,6 +342,12 @@ regions[]
 It must not expose numeric database IDs, tenant IDs, actor IDs, drafts,
 privileges, roles, users, client secrets, or authenticated navigation metadata.
 
+The public gateway queries only published versions and items whose effective
+access is `PUBLIC`. It must enforce audience in repository predicates rather
+than loading private rows and filtering them in memory. The authenticated
+gateway may return `AUTHENTICATED` content and only those `RESTRICTED` entries
+whose normalized requirements match the caller's effective privileges.
+
 Tenant identity comes exclusively from `ResolvedTenantContextHolder`. The
 gateway accepts no tenant ID, hostname override, or caller-selected scope. It
 must verify an active tenant/client mapping before resolving a set.
@@ -268,9 +360,9 @@ Resolution is deterministic:
 2. resolve exactly one active client by normalized `clientCode`;
 3. verify the active tenant/client mapping;
 4. resolve one active default navigation set for every requested surface;
-5. resolve its current published version;
-6. load all active items and translations with tenant/client ownership in the
-   query path;
+5. resolve its current published version and allowed audience;
+6. load only active, audience-eligible items and translations with
+   tenant/client ownership in the query path;
 7. validate hierarchy integrity and build the ordered tree;
 8. apply locale fallback and return the reduced public DTO.
 
@@ -279,6 +371,46 @@ ambiguous. A surface with no published set returns an empty region and an
 operational diagnostic; it must not fall back to another tenant, client, or an
 authenticated navigation tree. A `system_db` failure propagates as service
 unavailability and affects readiness.
+
+## 5.1 Audience transition workflow
+
+Changing audience always starts from a new draft cloned from the current
+published version. The published version and its privilege mappings remain
+immutable until an atomic publication switches the pointer.
+
+### Public to authenticated or restricted
+
+1. Clone the published version into a draft.
+2. Change the version or selected item access level.
+3. Add canonical privilege mappings for `RESTRICTED` content.
+4. Validate hierarchy, inherited audience, destinations, and privilege
+   references.
+5. Publish atomically.
+6. Evict public and authenticated cache entries for the affected set.
+
+After publication, anonymous resolution must stop returning the affected tree
+or item immediately.
+
+### Authenticated or restricted to public
+
+1. Clone the published version into a draft.
+2. Select the entries that will become public.
+3. Remove privilege requirements from those entries.
+4. Validate every internal destination against an explicit public-route
+   registry and every external destination against the approved URL policy.
+5. Reject administrative routes, authenticated-only routes, secrets, internal
+   identifiers, or labels/descriptions unsuitable for anonymous disclosure.
+6. Require the dedicated `PUBLISH_PUBLIC` privilege and a successful fresh
+   validation report.
+7. Publish atomically and evict all audience caches.
+
+Navigation exposure does not change route or API authorization. A destination
+must already be independently authorized for anonymous use before its link can
+be published publicly.
+
+Existing authenticated feature navigation is never converted in place. An
+administrator may explicitly copy safe presentation fields into a new draft,
+which then follows the public validation and publication workflow.
 
 ## 6. Administration access control
 
@@ -291,6 +423,7 @@ SEARCH
 CREATE
 UPDATE
 PUBLISH
+PUBLISH_PUBLIC
 ROLLBACK
 DELETE
 ```
@@ -308,6 +441,7 @@ POST   /api/v1/system/public-navigation/sets/{id}/draft
 PUT    /api/v1/system/public-navigation/drafts/{versionId}
 POST   /api/v1/system/public-navigation/drafts/{versionId}/validate
 POST   /api/v1/system/public-navigation/drafts/{versionId}/publish
+POST   /api/v1/system/public-navigation/drafts/{versionId}/publish-public
 POST   /api/v1/system/public-navigation/sets/{id}/rollback/{versionId}
 DELETE /api/v1/system/public-navigation/sets/{id}
 ```
@@ -317,6 +451,11 @@ Controllers use action-specific `@PrivilegeApi`/authorization checks with
 the authorized tenant. Client, business, branch, tenant, actor, and publication
 fields are never trusted from writable request fields.
 
+`PUBLISH_PUBLIC` is mandatory when a publication would broaden any version or
+item from `AUTHENTICATED`/`RESTRICTED` to `PUBLIC`. Ordinary `PUBLISH` cannot
+authorize anonymous exposure. Rollback to a version containing broader public
+access also requires `PUBLISH_PUBLIC`.
+
 ## 7. System administration UI
 
 Add `Public Navigation Administration` under System Setup. The UI includes:
@@ -324,6 +463,8 @@ Add `Public Navigation Administration` under System Setup. The UI includes:
 - authorized tenant selector;
 - client application selector filtered by the selected tenant;
 - navigation set and surface selector;
+- access-level selector for `PUBLIC`, `AUTHENTICATED`, and `RESTRICTED`;
+- searchable canonical privilege selector for restricted versions/items;
 - locale management;
 - hierarchical item editor with explicit ordering;
 - internal/external destination validation;
@@ -334,6 +475,12 @@ Add `Public Navigation Administration` under System Setup. The UI includes:
 - read-only publication history with numeric actors resolved to display data
   through the Auth-owned boundary.
 
+Changing an access level edits only the current draft. Selecting `PUBLIC`
+opens an exposure review that lists newly anonymous items, routes, external
+URLs, and privilege mappings to be removed. Publish remains disabled until the
+backend returns a fresh successful validation result. Any subsequent draft
+mutation invalidates that result.
+
 Changing tenant or client must reload all dependent data. The UI must never
 retain or submit a set from a previously selected scope.
 
@@ -343,7 +490,7 @@ retain or submit a set from a previously selected scope.
 
 ```text
 LayoutModuleGateway.getPublicLayout("CATALOG", origin)
-PublicNavigationModuleGateway.getPublishedNavigation(
+PublicNavigationModuleGateway.getPublishedPublicNavigation(
     "CATALOG", locale, {PRIMARY, UTILITY, FOOTER})
 ```
 
@@ -374,7 +521,7 @@ procedure rather than a cross-database migration.
 
 ### Phase B: System schema and service
 
-1. Add the five `sys_public_navigation_*` tables through the next approved
+1. Add the seven `sys_public_navigation_*` tables through the next approved
    additive System Flyway migration.
 2. Add constraints, indexes, repositories, services, gateway, admin APIs,
    privileges, health checks, and backup coverage.
@@ -383,7 +530,8 @@ procedure rather than a cross-database migration.
 ### Phase C: deterministic import
 
 1. Resolve tenant and client by trusted stable keys.
-2. Create a `CATALOG_PRIMARY` set for each Catalog tenant/client.
+2. Create a `CATALOG_PRIMARY` set for each Catalog tenant/client with published
+   access level `PUBLIC`.
 3. Copy the complete hierarchy into version 1 using stable item keys derived
    from the source identity.
 4. Copy translations and numeric audit actors.
@@ -420,12 +568,15 @@ Cache public trees using at least:
 
 ```text
 tenantId + clientApplicationId + navigationSetId
-+ publishedVersionId + locale + surface
++ publishedVersionId + locale + surface + audience
 ```
 
 Draft edits do not invalidate public caches. Publishing or rollback changes the
 publication pointer and evicts only the affected tenant/client/set entries.
 Do not cache solely by hostname, client code, locale, or navigation code.
+Authenticated restricted-tree caches also include a stable effective-privilege
+fingerprint or are scoped to an equivalent authorization decision key. Public
+and authenticated trees never share a cache entry.
 
 ## 11. Backup and recovery
 
@@ -451,6 +602,8 @@ split explicitly.
 - unique tenant/client/code and default-surface constraints;
 - same-version parent constraint and orphan detection;
 - immutable published-version behavior;
+- valid access-level constraints and normalized version/item privilege links;
+- database/query evidence that anonymous reads cannot select nonpublic rows;
 - numeric audit and publication actor enforcement;
 - deterministic import and rerun tests.
 
@@ -462,6 +615,11 @@ split explicitly.
 - locale fallback ordering;
 - cycle, depth, destination, and missing-label publication rejection;
 - atomic publication pointer change;
+- public-to-private removal from anonymous resolution;
+- private-to-public rejection without `PUBLISH_PUBLIC`;
+- public-route registry enforcement for newly anonymous internal routes;
+- restricted version/item matching against trusted effective privileges;
+- parent visibility preventing orphaned child promotion;
 - public DTO serialization excludes internal IDs and authorization data;
 - `CatalogContextService` uses System navigation and keeps Catalog content
   reads in `catalog_db`.
@@ -472,6 +630,11 @@ split explicitly.
 - locale editor completeness;
 - hierarchy editing and ordering;
 - privilege-specific action visibility;
+- access-level changes occur only in drafts;
+- restricted access displays a canonical privilege selector;
+- private-to-public review lists newly exposed routes and requires
+  `PUBLISH_PUBLIC`;
+- draft mutation invalidates a previously successful exposure validation;
 - SSR and hydration produce identical published navigation;
 - PRIMARY, UTILITY, FOOTER, and MOBILE regions render independently;
 - empty published regions do not reveal authenticated application navigation.
@@ -480,19 +643,22 @@ split explicitly.
 
 ### Phase 1: contract and schema review — Pending
 
-- approve ownership model, surfaces, DTOs, constraints, and publication rules;
+- approve ownership model, surfaces, audiences, DTOs, constraints, privilege
+  mappings, and publication rules;
 - approve the System migration before creating it;
 - approve the Catalog import/cutover procedure.
 
 ### Phase 2: System backend — Pending
 
 - implement migration, entities, repositories, services, validation,
-  publication, gateway, privileges, health, and tests.
+  audience-aware publication, public/authenticated gateways, privileges,
+  health, and tests.
 
 ### Phase 3: administration UI — Pending
 
 - implement tenant/client scoped navigation editing, translation, validation,
-  publication, history, and rollback.
+  audience/privilege editing, publication, exposure review, history, and
+  rollback.
 
 ### Phase 4: Catalog import and shadow comparison — Pending
 
@@ -517,6 +683,12 @@ split explicitly.
 - One reusable System service resolves public navigation for any active
   tenant/client application.
 - Anonymous responses contain only a published, localized public tree.
+- Authenticated responses contain only audience-eligible entries, with
+  restricted entries matched against trusted effective privileges.
+- Public/private changes are draft-based, versioned, validated, audited, and
+  applied only by atomic publication.
+- Broadening access to `PUBLIC` requires `PUBLISH_PUBLIC` and independently
+  public destination routes.
 - Drafts and authenticated privilege navigation never appear publicly.
 - Tenant and client scope cannot be selected or widened by request input.
 - Administration actions require explicit tenant-scoped privileges.

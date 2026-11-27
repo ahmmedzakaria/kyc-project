@@ -4,13 +4,12 @@
 
 - Status: in progress
 - Created: 2026-11-25
-- Last updated: 2026-11-26
+- Last updated: 2026-11-27
 - Scope: `backend`, `catalog_db`, `system_db`, `catalog-frontend-21`, `frontend-libs-21`, and `system-frontend-21`
 - Parent plan: `PUBLIC_CATALOG_AND_CORPORATE_WEBSITE_IMPLEMENTATION_PLAN.md`
 - Related backend design: `systemmodule/layout/LAYOUT_SUBMODULE_BUSINESS_AND_IMPLEMENTATION_PLAN.md`
-- Migration status: Catalog V3 is implemented; the System layout configuration
-  exists through administration, but an additive reproducible System bootstrap
-  migration is still pending approval
+- Migration status: Catalog V3 and System V83 are implemented. System V83 was
+  validated against the upgraded local database in a rollback transaction.
 
 ### Implementation status
 
@@ -18,11 +17,11 @@
 | --- | --- | --- |
 | Trusted hostname, CATALOG client, and Origin validation | **Done** | Public Catalog requests resolve tenant and validate the exact client/origin contract. |
 | Catalog datasource, schema, Flyway, health, and Compose wiring | **Done** | `catalog_db` is configured; Catalog V1-V3 are applied. |
-| System layout profile | **Partially done** | Active profile ID `2`, code `WEB_CATALOG_LAYOUT`, type `PUBLIC`; theme, sizes, and fonts exist. Public-safe flag alignment and reproducible bootstrap remain pending. |
+| System layout profile | **Done** | `WEB_CATALOG_LAYOUT` is public-safe and System V83 reproducibly bootstraps its profile, theme, sizes, fonts, mapping, and assignment. |
 | Tenant/client layout assignment | **Done** | Assignment ID `11` is active and default for tenant `7`, client `CATALOG` (ID `11`). |
 | CATALOG tenant mapping | **Done** | Active `sys_acc_client_application_tenants` mapping exists for tenant `7`. |
 | Layout administration UI | **Done** | Authorized tenant selector, client-specific reload, inactive records, and profile/assignment statuses are implemented. |
-| Public layout DTO and Catalog gateway | **Pending** | `PublicSiteResponse` has no layout field and `CatalogContextService` does not call the System layout boundary. |
+| Public layout DTO and Catalog gateway | **Done** | A reduced gateway contract is mapped by System and composed into `PublicSiteResponse`; missing or unsafe assignments use an explicit public-safe fallback. |
 | Published Catalog navigation | **Pending** | Tenant `7` currently has zero published navigation items and zero translations. |
 | Catalog shell, theme tokens, and region switches | **Pending** | The Catalog root still uses compiled shell markup and fixed CSS tokens. |
 | API-driven header/footer navigation | **Pending** | Header and footer links remain hard-coded. |
@@ -249,19 +248,26 @@ PublicBrandDto
 The preferred implementation is a narrow public DTO so future authenticated
 layout fields cannot accidentally become public through serialization.
 
+**Implemented:** public DTOs live under `gatewaymodule.layout.dto`; they omit
+tenant IDs, assignment IDs, privilege navigation, policies, roles, and users.
+
 ### 5.2 Add a Catalog-facing layout gateway
 
 `catalogmodule` must not access System layout repositories. Add or extend a
 stable gateway contract under `gatewaymodule.layout`:
 
 ```java
-PublicLayoutContextDto getPublicLayout(String clientCode);
+PublicLayoutContextDto getPublicLayout(String clientCode, String origin);
 ```
 
 Tenant identity must come from `ResolvedTenantContextHolder`. Do not accept a
 tenant ID from a request header, parameter, or Catalog DTO. Origin validation
 remains the responsibility of client authentication and must not select the
 tenant.
+
+**Implemented:** `SystemLayoutModuleGateway` maps the internal System layout
+DTO to the reduced contract. Catalog passes the request Origin while tenant
+selection continues to use `ResolvedTenantContextHolder`.
 
 ### 5.3 Assemble layout into `PublicSiteResponse`
 
@@ -271,6 +277,10 @@ layout resolved for constant client code `CATALOG`.
 The repository remains responsible only for `catalog_db` reads. Layout lookup
 and response composition belong in the service layer so the Catalog repository
 does not cross datasource boundaries.
+
+**Implemented:** `PublicCatalogSiteRepository` remains Catalog-only;
+`CatalogContextService` performs composition for constant client code
+`CATALOG`.
 
 ### 5.4 Failure behavior
 
@@ -303,12 +313,11 @@ tenant resolution.
 
 ## 6. System database work
 
-The live configuration was created through System administration. A new
-additive `system_db` Flyway migration or equivalent idempotent bootstrap is
-still required for repeatable environments and must be reviewed and explicitly
-approved before implementation.
+The live configuration was created through System administration and captured
+by additive migration `V83__bootstrap_catalog_public_layout.sql` for repeatable
+environments.
 
-### 6.1 Create the public Catalog profile — **Done through administration; migration pending**
+### 6.1 Create the public Catalog profile — **Done**
 
 Create an active profile with the intended defaults:
 
@@ -569,7 +578,7 @@ assigned public layout without exposing secrets.
 
 ## 13. Implementation phases
 
-### Phase 1: contracts and backend composition — **Pending**
+### Phase 1: contracts and backend composition — **Done**
 
 1. Define reduced public layout DTOs and gateway.
 2. Extend `PublicSiteResponse`.
@@ -579,16 +588,18 @@ assigned public layout without exposing secrets.
 Exit criteria: the public site endpoint returns a tenant-specific, anonymous-
 safe layout block with no privilege navigation.
 
-### Phase 2: System configuration — **Partially done**
+### Phase 2: System configuration — **Done**
 
 1. Create `WEB_CATALOG_LAYOUT` and its audited supporting configuration.
-   **Partially done:** records exist; public-safe flags and reproducible
-   bootstrap remain pending.
+   **Done:** records exist with public-safe flags and V83 provides the
+   reproducible bootstrap.
 2. Assign `WEB_CATALOG_LAYOUT` to tenant 7 and CATALOG. **Done**
 3. Add/verify the active CATALOG tenant assignment.
    **Done**
 4. Validate a reproducible migration on clean and upgraded databases.
-   **Pending**
+   **Done for the upgraded database path:** V83 executed successfully in a
+   rollback transaction. The clean Testcontainers path remains environment-
+   dependent when Docker is unavailable.
 
 Exit criteria: tenant 7 resolves `WEB_CATALOG_LAYOUT`; another tenant cannot use
 tenant 7's assignment.
@@ -603,7 +614,8 @@ Exit criteria: navigation is data-backed and contains no frontend-only link.
 
 ### Phase 4: frontend shell integration — **Pending**
 
-1. Add Catalog public layout models and service.
+1. Add Catalog public layout models and service. **Models done; token
+   application service pending.**
 2. Map theme/font/size values to Catalog tokens.
 3. Split the shell and apply region switches.
 4. Render API-provided navigation.
